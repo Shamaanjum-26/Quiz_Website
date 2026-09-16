@@ -230,11 +230,13 @@ export default function AdminLeadsPage() {
   const domainParam = searchParams.get('domain') || '';
   const campaignParam = searchParams.get('campaign') || '';
 
-  const [leads, setLeads] = useState<Lead[]>(SAMPLE_LEADS);
-  const [total, setTotal] = useState(SAMPLE_LEADS.length);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<LeadStatus | 'ALL'>('ALL');
   const [search, setSearch] = useState(domainParam || campaignParam || '');
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [quickDate, setQuickDate] = useState<'all' | 'today' | 'yesterday' | '7days'>('all');
   const [noteModal, setNoteModal] = useState<{ leadId: string; current: string } | null>(null);
   const [noteText, setNoteText] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -247,10 +249,6 @@ export default function AdminLeadsPage() {
   const [deletingAll, setDeletingAll] = useState(false);
 
   const load = useCallback(async () => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     const filters: LeadFilters = {
       search: search || undefined,
@@ -259,13 +257,15 @@ export default function AdminLeadsPage() {
       sort_order: 'desc',
     };
     try {
-      const result = await listLeads(filters, 1, 100);
-      if (result && result.data && result.data.length > 0) {
+      const result = await listLeads(filters, 1, 200);
+      if (result && result.data) {
         setLeads(result.data);
         setTotal(result.total);
       }
     } catch {
-      setLeads(SAMPLE_LEADS);
+      const fallback = await listLeads(filters, 1, 200);
+      setLeads(fallback?.data || []);
+      setTotal(fallback?.total || 0);
     } finally {
       setLoading(false);
     }
@@ -417,15 +417,13 @@ Hadescore Team`;
   const handleDeleteLead = async (leadId: string) => {
     setDeletingId(leadId);
     try {
-      if (isSupabaseConfigured) {
-        await deleteLead(leadId);
-      }
+      await deleteLead(leadId);
       setLeads((prev) => prev.filter((l) => l.id !== leadId));
       setTotal((prev) => Math.max(0, prev - 1));
       setDeleteLeadConfirm(null);
       toast({
         title: 'Lead Deleted',
-        description: 'Candidate lead record has been removed.',
+        description: 'Candidate lead record has been removed permanently.',
         variant: 'success',
       });
     } catch (err: any) {
@@ -442,16 +440,14 @@ Hadescore Team`;
   const handleDeleteAll = async () => {
     setDeletingAll(true);
     try {
-      if (isSupabaseConfigured) {
-        const ids = leads.map((l) => l.id);
-        await deleteAllLeads(ids);
-      }
+      const ids = leads.map((l) => l.id);
+      await deleteAllLeads(ids);
       setLeads([]);
       setTotal(0);
       setConfirmDeleteAllModal(false);
       toast({
         title: 'All Leads Deleted',
-        description: 'All candidate lead records have been removed.',
+        description: 'All candidate lead records have been removed permanently.',
         variant: 'success',
       });
     } catch (err: any) {
@@ -493,6 +489,53 @@ Hadescore Team`;
       });
     }
 
+    // Calendar & Quick Date filter
+    const todayYMD = new Date().toISOString().slice(0, 10);
+    const yesterdayYMD = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+    if (selectedDate) {
+      list = list.filter((l) => {
+        const leadDate = l.created_at || l.last_activity_at;
+        if (!leadDate) return false;
+        try {
+          return new Date(leadDate).toISOString().slice(0, 10) === selectedDate;
+        } catch {
+          return false;
+        }
+      });
+    } else if (quickDate === 'today') {
+      list = list.filter((l) => {
+        const leadDate = l.created_at || l.last_activity_at;
+        if (!leadDate) return false;
+        try {
+          return new Date(leadDate).toISOString().slice(0, 10) === todayYMD;
+        } catch {
+          return false;
+        }
+      });
+    } else if (quickDate === 'yesterday') {
+      list = list.filter((l) => {
+        const leadDate = l.created_at || l.last_activity_at;
+        if (!leadDate) return false;
+        try {
+          return new Date(leadDate).toISOString().slice(0, 10) === yesterdayYMD;
+        } catch {
+          return false;
+        }
+      });
+    } else if (quickDate === '7days') {
+      list = list.filter((l) => {
+        const leadDate = l.created_at || l.last_activity_at;
+        if (!leadDate) return false;
+        try {
+          const diff = Date.now() - new Date(leadDate).getTime();
+          return diff >= 0 && diff <= 7 * 86400000;
+        } catch {
+          return false;
+        }
+      });
+    }
+
     if (sortByDays) {
       list = [...list].sort((a, b) => {
         const aDate = new Date(a.last_activity_at || a.created_at).getTime();
@@ -502,7 +545,7 @@ Hadescore Team`;
     }
 
     return list;
-  }, [leads, activeFilter, showDuplicatesOnly, search, sortByDays, duplicateLeadIds]);
+  }, [leads, activeFilter, showDuplicatesOnly, search, selectedDate, quickDate, sortByDays, duplicateLeadIds]);
 
   const hotCount = leads.filter((l) => l.lead_status === 'HOT').length;
   const warmCount = leads.filter((l) => l.lead_status === 'WARM').length;
@@ -545,7 +588,7 @@ Hadescore Team`;
             className="rounded-xl border-slate-200/80 hover:bg-slate-50 text-slate-700 gap-2 h-9 text-xs font-semibold shadow-xs"
           >
             <Download className="w-3.5 h-3.5" />
-            {exporting ? 'Exporting...' : 'Export Leads CSV'}
+            {exporting ? 'Exporting...' : 'Export CSV'}
           </Button>
 
           {leads.length > 0 && (
@@ -563,6 +606,57 @@ Hadescore Team`;
         </div>
       }
     >
+      {/* ── Summary Stats Row ────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        {[
+          {
+            label: 'Total Leads',
+            value: leads.length,
+            sub: 'All pipeline',
+            gradient: 'from-slate-100 to-slate-50',
+            border: 'border-slate-200',
+            textColor: 'text-slate-800',
+            subColor: 'text-slate-500',
+          },
+          {
+            label: 'High Intent',
+            value: hotCount,
+            sub: 'Priority candidates',
+            gradient: 'from-emerald-50 to-white',
+            border: 'border-emerald-200/70',
+            textColor: 'text-emerald-700',
+            subColor: 'text-emerald-500',
+          },
+          {
+            label: 'Quiz Completed',
+            value: leads.filter((l) => l.has_completed_quiz).length,
+            sub: 'Assessments done',
+            gradient: 'from-indigo-50 to-white',
+            border: 'border-indigo-200/70',
+            textColor: 'text-indigo-700',
+            subColor: 'text-indigo-400',
+          },
+          {
+            label: 'Enrolled',
+            value: leads.filter((l) => l.has_registered_bootcamp).length,
+            sub: 'Bootcamp registrations',
+            gradient: 'from-amber-50 to-white',
+            border: 'border-amber-200/70',
+            textColor: 'text-amber-700',
+            subColor: 'text-amber-400',
+          },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className={`bg-gradient-to-br ${stat.gradient} border ${stat.border} rounded-2xl px-4 py-3.5 flex flex-col gap-0.5`}
+          >
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{stat.label}</span>
+            <span className={`text-2xl font-black ${stat.textColor} leading-none`}>{stat.value}</span>
+            <span className={`text-[10px] ${stat.subColor} font-medium`}>{stat.sub}</span>
+          </div>
+        ))}
+      </div>
+
       {/* Active URL Filter Indicator if drilled down from Dashboard/Campaigns */}
       {(domainParam || campaignParam) && (
         <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200/80 rounded-2xl flex items-center justify-between text-xs text-emerald-900">
@@ -629,9 +723,61 @@ Hadescore Team`;
           })}
         </div>
 
-        {/* Search Input & Sort Options */}
-        <div className="flex items-center gap-2.5 w-full md:w-auto">
-          <div className="relative flex-1 md:w-72">
+        {/* Search Input, Calendar Picker & Quick Date Filters */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          {/* Calendar Date Picker */}
+          <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200 text-xs">
+            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => {
+                setSelectedDate(e.target.value);
+                setQuickDate('all');
+              }}
+              className="bg-transparent text-xs text-slate-700 font-semibold focus:outline-none cursor-pointer"
+              title="Filter leads by date"
+            />
+            {selectedDate && (
+              <button
+                onClick={() => setSelectedDate('')}
+                className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
+                title="Clear date filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Date Pills */}
+          <div className="flex items-center gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
+            {[
+              { id: 'all', label: 'All Dates' },
+              { id: 'today', label: 'Today' },
+              { id: 'yesterday', label: 'Yesterday' },
+              { id: '7days', label: 'Last 7 Days' },
+            ].map((pill) => {
+              const isActive = !selectedDate && quickDate === pill.id;
+              return (
+                <button
+                  key={pill.id}
+                  onClick={() => {
+                    setSelectedDate('');
+                    setQuickDate(pill.id as any);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    isActive
+                      ? 'bg-white text-emerald-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {pill.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="relative flex-1 md:w-64">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <Input
               placeholder="Search candidate, phone, domain..."
@@ -658,19 +804,19 @@ Hadescore Team`;
         </div>
       </div>
 
-      {/* Main Leads Table Container */}
+      {/* Main Leads Table Container (Continuous Scrollable) */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)] overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[620px] overflow-y-auto scrollbar-thin">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/70 text-[11px] font-semibold text-slate-500 uppercase tracking-wider sticky top-0 z-10 backdrop-blur-md">
-                <th className="px-5 py-3.5">Candidate Information</th>
-                <th className="px-4 py-3.5">Contact & WhatsApp</th>
-                <th className="px-4 py-3.5">Lead Score</th>
-                <th className="px-4 py-3.5">Domain</th>
-                <th className="px-4 py-3.5">Conversion Milestones</th>
-                <th className="px-4 py-3.5">Last Activity</th>
-                <th className="px-4 py-3.5 text-right">Actions</th>
+              <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-20 shadow-xs">
+                <th className="px-5 py-3.5 bg-slate-50">Candidate Information</th>
+                <th className="px-4 py-3.5 bg-slate-50">Contact</th>
+                <th className="px-4 py-3.5 bg-slate-50">Quiz Score</th>
+                <th className="px-4 py-3.5 bg-slate-50">Domain</th>
+                <th className="px-4 py-3.5 bg-slate-50">Conversion Milestones</th>
+                <th className="px-4 py-3.5 bg-slate-50">Last Activity</th>
+                <th className="px-4 py-3.5 text-right bg-slate-50">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -714,106 +860,114 @@ Hadescore Team`;
                       {/* 1. Candidate Info */}
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-800 border border-slate-200/60 flex items-center justify-center font-bold text-xs shrink-0">
-                            {student?.full_name?.charAt(0) || 'L'}
+                          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-slate-700 border border-slate-200/60 flex items-center justify-center font-extrabold text-sm shrink-0 shadow-xs">
+                            {student?.full_name?.charAt(0)?.toUpperCase() || 'L'}
                           </div>
                           <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <p className="font-semibold text-slate-900 truncate">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-bold text-slate-900 text-xs truncate">
                                 {student?.full_name || 'Anonymous Student'}
                               </p>
                               {isDuplicate && (
                                 <span
-                                  className="px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold"
+                                  className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 border border-amber-200 text-[9px] font-bold uppercase tracking-wide"
                                   title="Duplicate candidate detected"
                                 >
-                                  Duplicate
+                                  Dup
                                 </span>
                               )}
                             </div>
-                            <p className="text-[11px] text-slate-400 truncate">
-                              {student?.email || 'No email registered'}
-                            </p>
-                            <p className="text-[11px] text-slate-500 font-medium truncate">
-                              {student?.college || 'College not listed'}
+                            <p className="text-[10px] text-slate-400 truncate leading-tight">{student?.email || '—'}</p>
+                            <p className="text-[10px] text-slate-600 font-medium truncate leading-tight">
+                              {[student?.college, student?.branch, student?.academic_year].filter(Boolean).join(' · ') || 'College not listed'}
                             </p>
                           </div>
                         </div>
                       </td>
 
-                      {/* 2. Contact & Automated WhatsApp Outreach */}
+                      {/* 2. Contact */}
                       <td className="px-4 py-3.5">
                         <div className="space-y-1.5">
-                          <p className="font-mono text-slate-700 font-medium text-[11px]">
-                            {student?.mobile ? `+91 ${student.mobile}` : '—'}
+                          <p className="font-mono text-slate-800 font-semibold text-[11px]">
+                            {student?.mobile ? `+91 ${student.mobile}` : <span className="text-slate-400">—</span>}
                           </p>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {lead.has_registered_bootcamp ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/60 text-[10px] font-semibold">
-                                <CheckCircle className="w-3 h-3 text-emerald-600" /> Enrolled 🚀
-                              </span>
-                            ) : (
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-sky-800 border border-sky-200/60 text-[10px] font-semibold"
-                                title="Automated WhatsApp reminder delivered to enroll in bootcamp"
-                              >
-                                <Send className="w-2.5 h-2.5 text-sky-600" /> Auto-Invite Sent ✓
-                              </span>
-                            )}
-                            {student?.mobile && (
-                              <a
-                                href={waLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 hover:border-emerald-300 text-[10px] font-semibold transition-colors shadow-2xs"
-                                title="Open manual WhatsApp chat with student"
-                              >
-                                <MessageSquare className="w-3 h-3 text-emerald-600" />
-                                <span>Chat</span>
-                              </a>
-                            )}
-                          </div>
+                          {lead.has_registered_bootcamp && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/60 text-[10px] font-semibold">
+                              <CheckCircle className="w-3 h-3 text-emerald-600" /> Enrolled
+                            </span>
+                          )}
                         </div>
                       </td>
 
-                      {/* 3. Lead Score */}
+                      {/* 3. Quiz Score (Actual correct/total from quiz results) */}
                       <td className="px-4 py-3.5">
-                        <span
-                          className={`inline-flex items-center justify-center w-8 h-8 rounded-xl text-xs font-bold border ${
-                            lead.lead_score >= 70
-                              ? 'bg-rose-50 text-rose-700 border-rose-200/80'
-                              : lead.lead_score >= 40
-                              ? 'bg-amber-50 text-amber-700 border-amber-200/80'
-                              : 'bg-sky-50 text-sky-700 border-sky-200/80'
-                          }`}
-                        >
-                          {lead.lead_score}
-                        </span>
+                        {lead.has_completed_quiz ? (
+                          lead.quiz_correct_answers != null && lead.quiz_total_questions != null ? (() => {
+                            // Show actual quiz result data from DB
+                            const totalQ = lead.quiz_total_questions;
+                            const correctQ = lead.quiz_correct_answers!;
+                            const pct = Math.round((correctQ / totalQ) * 100);
+                            return (
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-baseline gap-0.5">
+                                  <span className={`text-base font-black leading-none ${
+                                    pct >= 70 ? 'text-emerald-600' : pct >= 40 ? 'text-amber-600' : 'text-rose-500'
+                                  }`}>{correctQ}</span>
+                                  <span className="text-[10px] text-slate-400 font-semibold">/{totalQ}</span>
+                                </div>
+                                <div className="w-14 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-400'
+                                    }`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <span className="text-[9px] text-slate-400 font-medium">{pct}% score</span>
+                              </div>
+                            );
+                          })() : (
+                            // Quiz done but actual score data not yet available
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[10px] font-semibold">
+                              ✓ Done
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-[11px] text-slate-400">—</span>
+                        )}
                       </td>
 
                       {/* 4. Domain */}
                       <td className="px-4 py-3.5">
-                        <span className="text-slate-700 font-medium">
-                          {student?.preferred_domain?.name || 'General Tech'}
+                        <span className="inline-flex px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200/60 text-[10px] font-bold truncate max-w-[110px]">
+                          {student?.preferred_domain?.name || 'General'}
                         </span>
                       </td>
 
                       {/* 5. Milestones */}
                       <td className="px-4 py-3.5">
                         <div className="flex flex-wrap gap-1">
-                          {lead.has_completed_quiz && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[10px] font-medium">
-                              Quiz ✓
+                          {lead.has_completed_quiz ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[10px] font-semibold">
+                              ✓ Quiz
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-50 text-slate-400 border border-slate-200/60 text-[10px]">
+                              Quiz
                             </span>
                           )}
-                          {lead.has_registered_bootcamp && (
+                          {lead.has_registered_bootcamp ? (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-100/70 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
-                              Bootcamp 🚀
+                              ✓ Bootcamp
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-50 text-slate-400 border border-slate-200/60 text-[10px]">
+                              Bootcamp
                             </span>
                           )}
                           {lead.has_clicked_premium_report && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200/60 text-[10px] font-medium">
-                              Report 📄
+                              Report
                             </span>
                           )}
                         </div>
@@ -845,18 +999,6 @@ Hadescore Team`;
                       {/* 9. Actions */}
                       <td className="px-4 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <select
-                            value={lead.lead_status}
-                            onChange={(e) =>
-                              handleStatusChange(lead.id, e.target.value as LeadStatus)
-                            }
-                            className="text-[11px] font-semibold border border-slate-200 rounded-xl px-2.5 py-1 bg-white text-slate-700 focus:ring-1 focus:ring-emerald-500 cursor-pointer shadow-2xs"
-                          >
-                            <option value="HOT">High Intent</option>
-                            <option value="WARM">Engaged</option>
-                            <option value="NURTURE">Early Stage</option>
-                          </select>
-
                           <button
                             onClick={() => {
                               setNoteModal({ leadId: lead.id, current: lead.admin_notes || '' });
@@ -887,6 +1029,23 @@ Hadescore Team`;
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Scroll Information Footer Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50/60 text-xs text-slate-600 gap-2">
+          <div className="flex items-center gap-2">
+            <span>
+              Showing <strong>{filteredLeads.length}</strong> of <strong>{leads.length}</strong> qualified leads
+            </span>
+            {selectedDate && (
+              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-bold">
+                Date: {selectedDate}
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400 font-medium">
+            ↕ Scroll inside table to view all lead records
+          </div>
         </div>
       </div>
 

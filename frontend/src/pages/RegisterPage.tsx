@@ -17,7 +17,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { createOrGetStudent } from '@/services/studentService';
+import { createOrGetStudent, getStudentByEmail } from '@/services/studentService';
+import { getLeadForStudent } from '@/services/leadService';
+import { getStoredQuizConfig } from '@/services/quizService';
 import { getDomains } from '@/services/quizService';
 import { useUTM } from '@/hooks/useUTM';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -137,6 +139,27 @@ export default function RegisterPage() {
 
     setIsLoading(true);
     try {
+      // ── Strict 1 Attempt Per Email Limit Enforcement ─────────────
+      try {
+        const config = getStoredQuizConfig();
+        const existingStudent = await getStudentByEmail(data.email);
+        if (existingStudent) {
+          const lead = await getLeadForStudent(existingStudent.id);
+          if (lead && (lead.has_completed_quiz || config.max_attempts === 1)) {
+            toast({
+              title: '⚠️ Assessment Attempt Limit Reached',
+              description: `Candidate email '${data.email}' has already completed an assessment. Only 1 attempt is allowed per candidate email address.`,
+              variant: 'destructive',
+            });
+            setIsLoading(false);
+            setShowProctorModal(false);
+            return;
+          }
+        }
+      } catch (checkErr) {
+        console.warn('Attempt check notice:', checkErr);
+      }
+
       let chosenName = selectedDomainObj?.name || 'Python';
       let chosenSlug = selectedDomainObj?.slug || 'python';
       let targetDomainId = selectedDomainObj?.id;
@@ -222,19 +245,7 @@ export default function RegisterPage() {
           </p>
         </div>
 
-        {/* Supabase not configured warning */}
-        {!isSupabaseConfigured && (
-          <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-3 shadow-xs">
-            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-amber-800 text-sm">Supabase Not Configured</p>
-              <p className="text-amber-700 text-sm mt-1">
-                Add your Supabase credentials to <code className="bg-amber-100 px-1 rounded">.env</code> to enable registration.
-                See <code>.env.example</code> for required variables.
-              </p>
-            </div>
-          </div>
-        )}
+
 
         {/* Existing student notice */}
         {isExisting && (

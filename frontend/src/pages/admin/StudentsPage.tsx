@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search,
   Download,
@@ -28,6 +28,8 @@ import {
   exportStudentsCSV,
   deleteStudent,
   deleteAllStudents,
+  getLocalStudents,
+  LOCAL_STUDENTS_KEY,
 } from '@/services/studentService';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { formatDate, formatRelativeTime } from '@/lib/analytics';
@@ -87,44 +89,110 @@ const SAMPLE_STUDENTS: Student[] = [
 ];
 
 export default function AdminStudentsPage() {
-  const [students, setStudents] = useState<Student[]>(SAMPLE_STUDENTS);
-  const [total, setTotal] = useState(SAMPLE_STUDENTS.length);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [quickDate, setQuickDate] = useState<'all' | 'today' | 'yesterday' | '7days'>('all');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [deleteStudentConfirm, setDeleteStudentConfirm] = useState<Student | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteAllModal, setConfirmDeleteAllModal] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const pageSize = 20;
 
   const load = useCallback(async () => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
-    const filters: StudentFilters = {
-      search: search || undefined,
-    };
     try {
-      const result = await listStudents(filters, page, pageSize);
+      if (!isSupabaseConfigured) {
+        const local = getLocalStudents();
+        setStudents(local);
+        setTotal(local.length);
+        return;
+      }
+      const result = await listStudents({}, 1, 200);
       if (result && result.data) {
         setStudents(result.data as Student[]);
         setTotal(result.total);
       }
     } catch {
-      setStudents(SAMPLE_STUDENTS);
+      const local = getLocalStudents();
+      setStudents(local);
+      setTotal(local.length);
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Filter students based on search and selected calendar date
+  const filteredStudents = useMemo(() => {
+    let list = [...students];
+
+    // Search filter
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (s) =>
+          s.full_name?.toLowerCase().includes(q) ||
+          s.email?.toLowerCase().includes(q) ||
+          s.college?.toLowerCase().includes(q) ||
+          s.branch?.toLowerCase().includes(q) ||
+          s.mobile?.includes(q) ||
+          s.preferred_domain?.name?.toLowerCase().includes(q)
+      );
+    }
+
+    // Calendar & Quick Date filter
+    const todayYMD = new Date().toISOString().slice(0, 10);
+    const yesterdayYMD = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+
+    if (selectedDate) {
+      list = list.filter((s) => {
+        if (!s.created_at) return false;
+        try {
+          return new Date(s.created_at).toISOString().slice(0, 10) === selectedDate;
+        } catch {
+          return false;
+        }
+      });
+    } else if (quickDate === 'today') {
+      list = list.filter((s) => {
+        if (!s.created_at) return false;
+        try {
+          return new Date(s.created_at).toISOString().slice(0, 10) === todayYMD;
+        } catch {
+          return false;
+        }
+      });
+    } else if (quickDate === 'yesterday') {
+      list = list.filter((s) => {
+        if (!s.created_at) return false;
+        try {
+          return new Date(s.created_at).toISOString().slice(0, 10) === yesterdayYMD;
+        } catch {
+          return false;
+        }
+      });
+    } else if (quickDate === '7days') {
+      list = list.filter((s) => {
+        if (!s.created_at) return false;
+        try {
+          const diff = Date.now() - new Date(s.created_at).getTime();
+          return diff >= 0 && diff <= 7 * 86400000;
+        } catch {
+          return false;
+        }
+      });
+    }
+
+    // Sort newest first
+    return list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  }, [students, search, selectedDate, quickDate]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -146,16 +214,14 @@ export default function AdminStudentsPage() {
   const handleDeleteStudent = async (studentId: string) => {
     setDeletingId(studentId);
     try {
-      if (isSupabaseConfigured) {
-        await deleteStudent(studentId);
-      }
+      await deleteStudent(studentId);
       setStudents((prev) => prev.filter((s) => s.id !== studentId));
       setTotal((prev) => Math.max(0, prev - 1));
       if (selectedStudent?.id === studentId) setSelectedStudent(null);
       setDeleteStudentConfirm(null);
       toast({
         title: 'Student Record Deleted',
-        description: 'Candidate has been removed from registered students.',
+        description: 'Candidate has been removed from registered students permanently.',
         variant: 'success',
       });
     } catch (err: any) {
@@ -172,17 +238,15 @@ export default function AdminStudentsPage() {
   const handleDeleteAll = async () => {
     setDeletingAll(true);
     try {
-      if (isSupabaseConfigured) {
-        const ids = students.map((s) => s.id);
-        await deleteAllStudents(ids);
-      }
+      const ids = students.map((s) => s.id);
+      await deleteAllStudents(ids);
       setStudents([]);
       setTotal(0);
       setConfirmDeleteAllModal(false);
       setSelectedStudent(null);
       toast({
         title: 'All Students Deleted',
-        description: 'All registered student records have been removed.',
+        description: 'All registered student records have been deleted permanently.',
         variant: 'success',
       });
     } catch (err: any) {
@@ -227,45 +291,99 @@ export default function AdminStudentsPage() {
         </div>
       }
     >
-      {/* Search Bar & Counter Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-5">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <Input
-            type="text"
-            placeholder="Search candidate, email, mobile, college..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="pl-9 bg-white border-slate-200/80 rounded-xl text-xs h-9 shadow-xs focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
+      {/* Search Bar, Calendar Date Picker & Quick Date Filters Header */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs mb-5 space-y-3">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+          {/* Search Input */}
+          <div className="relative w-full lg:w-96">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Input
+              type="text"
+              placeholder="Search candidate, email, mobile, college, domain..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 bg-slate-50/70 border-slate-200/80 rounded-xl text-xs h-9 shadow-xs focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
 
-        <div className="flex items-center gap-2 text-xs text-slate-500 bg-white px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-2xs">
-          <span>Registered Candidates:</span>
-          <strong className="text-slate-900 font-bold bg-slate-100 px-2 py-0.5 rounded-md">
-            {total}
-          </strong>
+          {/* Calendar Picker & Quick Filters */}
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+            {/* Native Calendar Input */}
+            <div className="flex items-center gap-1.5 bg-slate-50/80 px-2.5 py-1 rounded-xl border border-slate-200 text-xs">
+              <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => {
+                  setSelectedDate(e.target.value);
+                  setQuickDate('all');
+                }}
+                className="bg-transparent text-xs text-slate-700 font-semibold focus:outline-none cursor-pointer"
+                title="Filter by specific date"
+              />
+              {selectedDate && (
+                <button
+                  onClick={() => setSelectedDate('')}
+                  className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
+                  title="Clear date"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Quick Date Pills */}
+            <div className="flex items-center gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
+              {[
+                { id: 'all', label: 'All Dates' },
+                { id: 'today', label: 'Today' },
+                { id: 'yesterday', label: 'Yesterday' },
+                { id: '7days', label: 'Last 7 Days' },
+              ].map((pill) => {
+                const isActive = !selectedDate && quickDate === pill.id;
+                return (
+                  <button
+                    key={pill.id}
+                    onClick={() => {
+                      setSelectedDate('');
+                      setQuickDate(pill.id as any);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      isActive
+                        ? 'bg-white text-emerald-700 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {pill.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Total Count Badge */}
+            <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-emerald-50 text-emerald-800 border border-emerald-200/80 px-3 py-1.5 rounded-xl font-bold ml-auto lg:ml-0">
+              <span>Candidates:</span>
+              <strong className="text-emerald-950 font-black">{filteredStudents.length}</strong>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Main Students Table */}
+      {/* Main Students Table (Scrollable View, No Page Cutoff) */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)] overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[620px] overflow-y-auto scrollbar-thin">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/70 text-[11px] font-semibold text-slate-500 uppercase tracking-wider sticky top-0 z-10 backdrop-blur-md">
-                <th className="px-5 py-3.5">Candidate Name & Email</th>
-                <th className="px-4 py-3.5">Contact (Mobile)</th>
-                <th className="px-4 py-3.5">College / University</th>
-                <th className="px-4 py-3.5">Branch / Course</th>
-                <th className="px-4 py-3.5">Academic Year</th>
-                <th className="px-4 py-3.5">State</th>
-                <th className="px-4 py-3.5">Registered Domain</th>
-                <th className="px-4 py-3.5">Registered Date</th>
-                <th className="px-4 py-3.5 text-right">Actions</th>
+              <tr className="border-b border-slate-200/90 bg-slate-50 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-20 shadow-xs">
+                <th className="px-5 py-3.5 bg-slate-50">Candidate Name & Email</th>
+                <th className="px-4 py-3.5 bg-slate-50">Contact (Mobile)</th>
+                <th className="px-4 py-3.5 bg-slate-50">College / University</th>
+                <th className="px-4 py-3.5 bg-slate-50">Branch / Course</th>
+                <th className="px-4 py-3.5 bg-slate-50">Academic Year</th>
+                <th className="px-4 py-3.5 bg-slate-50">State</th>
+                <th className="px-4 py-3.5 bg-slate-50">Registered Domain</th>
+                <th className="px-4 py-3.5 bg-slate-50">Registered Date</th>
+                <th className="px-4 py-3.5 text-right bg-slate-50">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -275,23 +393,31 @@ export default function AdminStudentsPage() {
                     <AdminTableSkeleton rows={5} columns={9} />
                   </td>
                 </tr>
-              ) : students.length === 0 ? (
+              ) : filteredStudents.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12">
                     <AdminEmptyState
                       title="No registered students found"
-                      description="No candidates match your current search query or filter criteria."
-                      actionLabel="Clear Search"
-                      onAction={() => setSearch('')}
+                      description={
+                        selectedDate
+                          ? `No candidates registered on ${selectedDate}.`
+                          : 'No candidates match your current search query or date filter.'
+                      }
+                      actionLabel="Reset Filters"
+                      onAction={() => {
+                        setSearch('');
+                        setSelectedDate('');
+                        setQuickDate('all');
+                      }}
                     />
                   </td>
                 </tr>
               ) : (
-                students.map((student) => {
+                filteredStudents.map((student) => {
                   return (
                     <tr
                       key={student.id}
-                      className="hover:bg-slate-50/60 transition-colors duration-150 group"
+                      className="hover:bg-slate-50/80 transition-colors duration-150 group"
                     >
                       {/* 1. Candidate Name & Email */}
                       <td className="px-5 py-3.5">
@@ -346,29 +472,28 @@ export default function AdminStudentsPage() {
                       </td>
 
                       {/* 6. State */}
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-1 text-slate-600 text-[11px]">
+                      <td className="px-4 py-3.5 text-slate-600">
+                        <div className="flex items-center gap-1 max-w-[120px] truncate">
                           <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="truncate max-w-[120px]">{student.state || '—'}</span>
+                          <span className="truncate">{student.state || '—'}</span>
                         </div>
                       </td>
 
                       {/* 7. Registered Domain */}
                       <td className="px-4 py-3.5">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200/60 text-[11px] font-semibold">
-                          <BookOpen className="w-3 h-3 text-emerald-600" />
-                          {student.preferred_domain?.name || 'General Tech'}
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-200/80 shadow-2xs">
+                          <span>{student.preferred_domain?.icon || '⚡'}</span>
+                          <span>{student.preferred_domain?.name || 'General Assessment'}</span>
                         </span>
                       </td>
 
-                      {/* 8. Registration Timestamp */}
-                      <td className="px-4 py-3.5 whitespace-nowrap text-slate-500 text-[11px]">
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-1 text-slate-700 font-medium">
-                            <Calendar className="w-3 h-3 text-slate-400" />
-                            <span>{formatDate(student.created_at)}</span>
-                          </div>
-                          <p className="text-[10px] text-slate-400">
+                      {/* 8. Registered Date */}
+                      <td className="px-4 py-3.5">
+                        <div className="text-[11px]">
+                          <p className="font-semibold text-slate-700">
+                            {formatDate(student.created_at)}
+                          </p>
+                          <p className="text-slate-400 text-[10px]">
                             {formatRelativeTime(student.created_at)}
                           </p>
                         </div>
@@ -379,8 +504,8 @@ export default function AdminStudentsPage() {
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => setSelectedStudent(student)}
-                            className="p-1.5 rounded-xl border border-slate-200/60 hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors shadow-2xs"
-                            title="View Full Registration Dossier"
+                            className="p-1.5 rounded-xl border border-slate-200/60 hover:border-slate-300 hover:bg-slate-50 text-slate-600 transition-colors shadow-2xs"
+                            title="View Full Profile"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -402,32 +527,20 @@ export default function AdminStudentsPage() {
           </table>
         </div>
 
-        {/* Pagination Bar */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-100 text-xs text-slate-500 bg-slate-50/30">
-          <div>
-            Showing <strong className="font-semibold text-slate-700">{students.length}</strong> of{' '}
-            <strong className="font-semibold text-slate-700">{total}</strong> registered students
-          </div>
+        {/* Scroll Information Footer Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-3 border-t border-slate-200 bg-slate-50/60 text-xs text-slate-600 gap-2">
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="rounded-xl border-slate-200/80 hover:bg-white text-xs gap-1 h-8"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" /> Previous
-            </Button>
-            <span className="px-2 font-medium text-slate-600">Page {page}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page * pageSize >= total}
-              onClick={() => setPage((p) => p + 1)}
-              className="rounded-xl border-slate-200/80 hover:bg-white text-xs gap-1 h-8"
-            >
-              Next <ChevronRight className="w-3.5 h-3.5" />
-            </Button>
+            <span>
+              Showing <strong>{filteredStudents.length}</strong> of <strong>{students.length}</strong> candidates
+            </span>
+            {selectedDate && (
+              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-bold">
+                Date: {selectedDate}
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400 font-medium">
+            ↕ Scroll inside table to view all candidate records
           </div>
         </div>
       </div>

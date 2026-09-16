@@ -4,31 +4,44 @@ import type { Domain, Question, QuizAttempt, QuizAnswer, QuizResult } from '@/ty
 
 // ── Get all active domains ────────────────────────────────────
 export async function getDomains(): Promise<Domain[]> {
-  const { data, error } = await supabase
-    .from('domains')
-    .select('*')
-    .eq('active', true)
-    .order('display_order', { ascending: true });
+  if (!isSupabaseConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('domains')
+      .select('*')
+      .eq('active', true)
+      .order('display_order', { ascending: true });
 
-  if (error) throw error;
-  return (data || []) as Domain[];
+    if (error) return [];
+    return (data || []) as Domain[];
+  } catch {
+    return [];
+  }
 }
 
 // ── Get domain by slug ────────────────────────────────────────
 export async function getDomainBySlug(slug: string): Promise<Domain | null> {
-  const { data, error } = await supabase
-    .from('domains')
-    .select('*')
-    .eq('slug', slug)
-    .eq('active', true)
-    .maybeSingle();
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from('domains')
+      .select('*')
+      .eq('slug', slug)
+      .eq('active', true)
+      .maybeSingle();
 
-  if (error) throw error;
-  return data as Domain | null;
+    if (error) return null;
+    return data as Domain | null;
+  } catch {
+    return null;
+  }
 }
 
-// ── Get questions for a domain (WITHOUT correct answers, 10 Easy, 10 Med, 10 Hard) ──
-export async function getQuestionsForQuiz(domainId: string, limit = 30): Promise<Question[]> {
+// ── Get questions for a domain (WITHOUT correct answers) ──
+export async function getQuestionsForQuiz(domainId: string, limit?: number): Promise<Question[]> {
+  const quizConfig = getStoredQuizConfig();
+  const targetLimit = limit || quizConfig.questions_per_quiz || 10;
+
   // Get questions
   const { data: questions, error: qError } = await supabase
     .from('questions')
@@ -43,18 +56,26 @@ export async function getQuestionsForQuiz(domainId: string, limit = 30): Promise
   const medPool = allQ.filter((q) => q.difficulty === 'medium').sort(() => Math.random() - 0.5);
   const hardPool = allQ.filter((q) => q.difficulty === 'hard').sort(() => Math.random() - 0.5);
 
-  const selectedEasy = easyPool.slice(0, 10);
-  const selectedMed = medPool.slice(0, 10);
-  const selectedHard = hardPool.slice(0, 10);
+  const easyCount = Math.max(1, Math.ceil(targetLimit * 0.33));
+  const medCount = Math.max(1, Math.ceil(targetLimit * 0.33));
+  const hardCount = Math.max(0, targetLimit - easyCount - medCount);
 
-  // Maintain sequence: 10 Easy, 10 Medium, 10 Hard
+  const selectedEasy = easyPool.slice(0, easyCount);
+  const selectedMed = medPool.slice(0, medCount);
+  const selectedHard = hardPool.slice(0, hardCount);
+
   let ordered = [...selectedEasy, ...selectedMed, ...selectedHard];
 
-  // If some tiers had fewer than 10, fill from remaining pool up to limit
-  if (ordered.length < limit) {
+  // If some tiers had fewer than requested, fill from remaining pool up to targetLimit
+  if (ordered.length < targetLimit) {
     const selectedIds = new Set(ordered.map((q) => q.id));
     const leftovers = allQ.filter((q) => !selectedIds.has(q.id)).sort(() => Math.random() - 0.5);
-    ordered.push(...leftovers.slice(0, limit - ordered.length));
+    ordered.push(...leftovers.slice(0, targetLimit - ordered.length));
+  }
+
+  // Final trim to exact target limit
+  if (ordered.length > targetLimit) {
+    ordered = ordered.slice(0, targetLimit);
   }
 
   const questionIds = ordered.map((q) => q.id);
@@ -506,41 +527,88 @@ export async function getQuizAttempts(page = 1, pageSize = 20) {
 export interface QuizEngineConfig {
   question_bank_size: number;
   questions_per_quiz: number;
-  max_attempts: number;
+  passing_questions_count: number;
   passing_percentage: number;
+  max_attempts: number;
+  quiz_timer_minutes: number;
   gemini_api_key?: string;
   gemini_api_key_masked?: string;
 }
 
+export const QUIZ_CONFIG_KEY = 'hadescore_quiz_config';
+
+export const DEFAULT_QUIZ_CONFIG: QuizEngineConfig = {
+  question_bank_size: 30,
+  questions_per_quiz: 10,
+  passing_questions_count: 5,
+  passing_percentage: 50,
+  max_attempts: 1, // 1 Attempt per candidate email ID
+  quiz_timer_minutes: 15,
+};
+
+export function getStoredQuizConfig(): QuizEngineConfig {
+  if (typeof window === 'undefined') return DEFAULT_QUIZ_CONFIG;
+  try {
+    const raw = localStorage.getItem(QUIZ_CONFIG_KEY);
+    if (!raw) return DEFAULT_QUIZ_CONFIG;
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_QUIZ_CONFIG,
+      ...parsed,
+      passing_questions_count: parsed.passing_questions_count || Math.ceil(((parsed.passing_percentage || 50) / 100) * (parsed.questions_per_quiz || 10)),
+    };
+  } catch {
+    return DEFAULT_QUIZ_CONFIG;
+  }
+}
+
 export async function fetchQuizConfig(): Promise<QuizEngineConfig> {
+  const localConfig = getStoredQuizConfig();
   try {
     const res = await fetch(`${BACKEND_URL}/api/quiz/config`);
     if (res.ok) {
-      return await res.json();
+      const serverConfig = await res.json();
+      const merged = { ...localConfig, ...serverConfig };
+      localStorage.setItem(QUIZ_CONFIG_KEY, JSON.stringify(merged));
+      return merged;
     }
   } catch (err) {
-    console.warn('Failed to fetch quiz config from backend:', err);
+    console.warn('Backend quiz config fetch notice:', err);
   }
-  return {
-    question_bank_size: 30,
-    questions_per_quiz: 10,
-    max_attempts: 999,
-    passing_percentage: 50,
-  };
+  return localConfig;
 }
 
 export async function saveQuizConfig(config: Partial<QuizEngineConfig>): Promise<QuizEngineConfig> {
-  const res = await fetch(`${BACKEND_URL}/api/quiz/config`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(config),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to update quiz engine configuration');
+  const current = getStoredQuizConfig();
+  const updated: QuizEngineConfig = {
+    ...current,
+    ...config,
+  };
+
+  // Ensure passing_questions_count and passing_percentage stay in sync
+  if (config.questions_per_quiz || config.passing_questions_count) {
+    const qCount = updated.questions_per_quiz || 10;
+    const pCount = Math.min(qCount, Math.max(1, updated.passing_questions_count || 5));
+    updated.passing_questions_count = pCount;
+    updated.passing_percentage = Math.round((pCount / qCount) * 100);
+  } else if (config.passing_percentage) {
+    const qCount = updated.questions_per_quiz || 10;
+    updated.passing_questions_count = Math.ceil(((config.passing_percentage || 50) / 100) * qCount);
   }
-  const data = await res.json();
-  return data.config;
+
+  localStorage.setItem(QUIZ_CONFIG_KEY, JSON.stringify(updated));
+
+  try {
+    await fetch(`${BACKEND_URL}/api/quiz/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    });
+  } catch (err) {
+    console.warn('Backend quiz config save notice:', err);
+  }
+
+  return updated;
 }
 
 export interface DomainBankStat {

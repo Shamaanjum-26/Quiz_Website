@@ -138,6 +138,20 @@ export default function BootcampRegisterPage() {
         }
       }
 
+      try {
+        const rawLeads = localStorage.getItem('hadescore_local_leads');
+        if (rawLeads) {
+          const leads = JSON.parse(rawLeads);
+          const found = leads.find((l: any) => l.student_id === studentId || l.student?.email === studentInfo.email);
+          if (found) {
+            found.has_registered_bootcamp = true;
+            found.lead_score = Math.max(found.lead_score, 85);
+            found.lead_status = 'HOT';
+            localStorage.setItem('hadescore_local_leads', JSON.stringify(leads));
+          }
+        }
+      } catch {}
+
       toast({
         title: 'Bootcamp Registered! 🎉',
         description: 'Your seat has been reserved. Check your confirmation details.',
@@ -202,8 +216,8 @@ export default function BootcampRegisterPage() {
           <div className="bg-gradient-to-r from-[#0b1c38] via-[#092b5e] to-[#041226] p-6 sm:p-8 text-white relative">
             <div className="flex items-center gap-2 mb-3">
               <img src="/logo.png" alt="Hadescore" className="w-5 h-5 object-contain" />
-              <span className="text-[11px] font-bold text-sky-300 tracking-wider uppercase">
-                Hadescore Pvt Ltd
+              <span className="font-display font-black text-xs sm:text-sm tracking-tight">
+                <span className="text-[#00D8F6]">HADES</span><span className="text-white">CORE</span> <span className="text-[#00D8F6]">PVT LTD</span>
               </span>
               <span className="text-white/30">•</span>
               <span className="text-[10px] text-white/70 uppercase tracking-widest">

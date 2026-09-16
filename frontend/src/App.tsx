@@ -51,16 +51,16 @@ function App() {
     <AuthContext.Provider value={authState}>
       <BrowserRouter>
         <Routes>
-          {/* Main entry: Opens Hadescore Admin Login page first */}
-          <Route path="/" element={<Navigate to="/admin/login" replace />} />
+          {/* Admin Login */}
           <Route path="/admin/login" element={<AdminLoginPage />} />
 
           {/* Student Portal routes */}
           <Route element={<PublicLayout />}>
+            <Route path="/" element={<LandingPage />} />
             <Route path="/home" element={<LandingPage />} />
             <Route path="/assessment" element={<LandingPage />} />
             <Route path="/register" element={<RegisterPage />} />
-            <Route path="/domains" element={<Navigate to="/home" replace />} />
+            <Route path="/domains" element={<Navigate to="/" replace />} />
             <Route path="/result/:attemptId" element={<ResultPage />} />
             <Route path="/report/:resultId" element={<SkillReportPage />} />
             <Route path="/bootcamp/register" element={<BootcampRegisterPage />} />

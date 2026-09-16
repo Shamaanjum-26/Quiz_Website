@@ -69,7 +69,69 @@ export default function AdminAnalyticsPage({ defaultPeriod }: AdminAnalyticsPage
   };
 
   const loadAnalytics = useCallback(async () => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured) {
+      try {
+        const rawStudents = localStorage.getItem('hadescore_local_students');
+        const students = rawStudents ? JSON.parse(rawStudents) : [];
+        const rawLeads = localStorage.getItem('hadescore_local_leads');
+        const leads = rawLeads ? JSON.parse(rawLeads) : [];
+
+        const totalStudents = students.length;
+        const attempts = leads.filter((l: any) => l.has_completed_quiz || (l.session_count && l.session_count > 0)).length;
+        const reports = leads.filter((l: any) => l.has_completed_quiz).length;
+        const bootcamp = leads.filter((l: any) => l.has_registered_bootcamp).length;
+
+        setMilestones({
+          total_students: totalStudents,
+          quiz_attempts: attempts,
+          reports_generated: reports,
+          bootcamp_enrolled: bootcamp,
+          activation_rate: totalStudents > 0 ? ((attempts / totalStudents) * 100).toFixed(1) + '%' : '0.0%',
+          completion_rate: attempts > 0 ? ((reports / attempts) * 100).toFixed(1) + '%' : '0.0%',
+          conversion_rate: totalStudents > 0 ? ((bootcamp / totalStudents) * 100).toFixed(1) + '%' : '0.0%',
+        });
+
+        // 7 days chart
+        const daysMap: Record<string, { count: number; attempts: number; bootcamp: number }> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(Date.now() - i * 86400000);
+          const iso = d.toISOString().slice(0, 10);
+          daysMap[iso] = { count: 0, attempts: 0, bootcamp: 0 };
+        }
+        students.forEach((s: any) => {
+          if (s.created_at) {
+            const k = s.created_at.slice(0, 10);
+            if (daysMap[k]) daysMap[k].count++;
+          }
+        });
+        leads.forEach((l: any) => {
+          if (l.created_at) {
+            const k = l.created_at.slice(0, 10);
+            if (daysMap[k]) {
+              if (l.has_completed_quiz) daysMap[k].attempts++;
+              if (l.has_registered_bootcamp) daysMap[k].bootcamp++;
+            }
+          }
+        });
+
+        const cData = Object.entries(daysMap).map(([iso, v]) => ({
+          date: new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          count: v.count,
+          attempts: v.attempts,
+          bootcamp: v.bootcamp,
+        }));
+        setChartData(cData);
+
+        // Domain stats
+        const dCounts: Record<string, number> = {};
+        students.forEach((s: any) => {
+          const name = s.preferred_domain?.name || 'General';
+          dCounts[name] = (dCounts[name] || 0) + 1;
+        });
+        setDomainStats(Object.entries(dCounts).map(([name, count]) => ({ name, count })));
+      } catch {}
+      return;
+    }
     try {
       setIsLiveSyncing(true);
       const data = period === 'daily' 

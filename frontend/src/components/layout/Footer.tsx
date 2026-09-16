@@ -39,12 +39,14 @@ export function Footer() {
                 alt="Hadescore PVT LTD Logo"
                 className="w-10 h-10 object-contain drop-shadow-md"
               />
-              <span className="font-display font-bold text-xl text-white">
-                Hadescore <span className="text-brand-400">PVT LTD</span>
+              <span className="font-display font-black text-xl tracking-tight">
+                <span className="text-[#00D8F6]">HADES</span>
+                <span className="text-white">CORE</span>
+                <span className="text-[#00D8F6] ml-2">PVT LTD</span>
               </span>
             </Link>
             <p className="text-sm leading-relaxed text-gray-400 mb-6 max-w-xs">
-              Empowering students and professionals to discover their real technical skill level with industry-grade diagnostic assessments by Hadescore PVT LTD.
+              Empowering students and professionals to discover their real technical skill level with industry-grade diagnostic assessments by HADESCORE PVT LTD.
             </p>
             <div className="flex items-center gap-3">
               {[
@@ -100,7 +102,7 @@ export function Footer() {
       <div className="border-t border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-xs text-gray-500">
-            © {currentYear} Hadescore PVT LTD. All rights reserved. Made with ❤️ for tech learners.
+            © {currentYear} HADESCORE PVT LTD. All rights reserved. Made with ❤️ for tech learners.
           </p>
         </div>
       </div>

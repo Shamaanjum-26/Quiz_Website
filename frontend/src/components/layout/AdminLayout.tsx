@@ -4,8 +4,6 @@ import {
   LayoutDashboard,
   Users,
   Target,
-  BookOpen,
-  HelpCircle,
   BarChart3,
   Rocket,
   Settings,
@@ -33,8 +31,6 @@ const navItems: NavItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/admin' },
   { icon: Target, label: 'Leads', href: '/admin/leads' },
   { icon: Users, label: 'Students', href: '/admin/students' },
-  { icon: BookOpen, label: 'Domains', href: '/admin/domains' },
-  { icon: HelpCircle, label: 'Questions', href: '/admin/questions' },
   { icon: BarChart3, label: 'Analytics', href: '/admin/analytics' },
   { icon: Settings, label: 'Settings', href: '/admin/settings' },
 ];
@@ -85,16 +81,16 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
       <aside
         className={cn(
           'hidden lg:flex lg:flex-col bg-white/85 backdrop-blur-2xl border-r border-slate-200/80 shadow-[4px_0_24px_0_rgba(15,23,42,0.03)] fixed inset-y-0 left-0 z-30 transition-all duration-300 ease-in-out',
-          collapsed ? 'w-20' : 'w-64'
+          collapsed ? 'w-20' : 'w-72'
         )}
       >
         {/* Logo & Collapse Header */}
-        <div className="h-16 px-4 flex items-center justify-between border-b border-slate-100/90">
+        <div className="h-16 px-3.5 flex items-center justify-between border-b border-slate-100/90">
           <Link
             to="/admin"
             className={cn(
-              'flex items-center gap-2.5 overflow-hidden transition-all duration-200',
-              collapsed ? 'justify-center w-full' : 'px-2'
+              'flex items-center gap-2.5 transition-all duration-200',
+              collapsed ? 'justify-center w-full' : 'flex-1 min-w-0 pr-1'
             )}
             title="Hadescore Admin Portal"
           >
@@ -110,17 +106,17 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
             </div>
             {!collapsed && (
               <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-slate-900 text-sm tracking-tight truncate">
-                    Hadescore
+                <div className="font-display font-black text-xs sm:text-[13px] tracking-tight whitespace-nowrap leading-tight">
+                  <span className="text-[#00D8F6]">HADES</span><span className="text-slate-900">CORE</span> <span className="text-[#00D8F6]">PVT LTD</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">
+                    Assessment & CRM
                   </span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/60 uppercase tracking-wider">
+                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 uppercase tracking-wider">
                     Admin
                   </span>
                 </div>
-                <span className="text-[11px] text-slate-400 font-medium truncate">
-                  Assessment & CRM
-                </span>
               </div>
             )}
           </Link>
@@ -128,7 +124,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
           {!collapsed && (
             <button
               onClick={() => setCollapsed(true)}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
               title="Collapse sidebar"
             >
               <PanelLeftClose className="w-4 h-4" />
@@ -256,21 +252,28 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="h-16 px-5 flex items-center justify-between border-b border-slate-100">
+        <div className="h-16 px-4 flex items-center justify-between border-b border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0 shadow-2xs">
               <img src="/logo.png" alt="Logo" className="w-5 h-5 object-contain" />
             </div>
-            <div>
-              <span className="font-semibold text-slate-900 text-sm">Hadescore</span>
-              <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Admin
-              </span>
+            <div className="flex flex-col">
+              <div className="font-display font-black text-xs sm:text-[13px] tracking-tight whitespace-nowrap leading-tight">
+                <span className="text-[#00D8F6]">HADES</span><span className="text-slate-900">CORE</span> <span className="text-[#00D8F6]">PVT LTD</span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-[10px] text-slate-400 font-medium">
+                  Assessment & CRM
+                </span>
+                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-wider">
+                  Admin
+                </span>
+              </div>
             </div>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -332,7 +335,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
       <div
         className={cn(
           'flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out',
-          collapsed ? 'lg:ml-20' : 'lg:ml-64'
+          collapsed ? 'lg:ml-20' : 'lg:ml-72'
         )}
       >
         {/* Top Navigation Bar */}

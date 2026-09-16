@@ -1,5 +1,5 @@
 import { useState, useEffect, createContext, useContext } from 'react';
-import supabase from '@/lib/supabase';
+import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
@@ -41,6 +41,15 @@ export function useAuthState(): AuthContextType {
   });
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      if (localStorage.getItem('skillprobe_admin_session') === 'true') {
+        setUser({ id: 'admin-master', email: 'admin@hadescore.com' } as unknown as User);
+        setIsAdmin(true);
+      }
+      setLoading(false);
+      return;
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user) {

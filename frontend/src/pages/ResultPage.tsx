@@ -5,7 +5,7 @@ import {
   Loader2, AlertCircle,
   Sparkles, ArrowRight
 } from 'lucide-react';
-import { getQuizResult } from '@/services/quizService';
+import { getQuizResult, getStoredQuizConfig } from '@/services/quizService';
 import { getBootcampForDomain } from '@/services/bootcampService';
 import { trackLeadActivity } from '@/services/leadService';
 import { getPersistedStudentId } from '@/lib/analytics';
@@ -191,8 +191,9 @@ export default function ResultPage() {
     } as any,
   };
 
+  const quizConfig = getStoredQuizConfig();
   const percentage = typeof activeResult.percentage === 'number' ? activeResult.percentage : parseFloat(String(activeResult.percentage || 0));
-  const isPassed = typeof activeResult.is_passed === 'boolean' ? activeResult.is_passed : percentage >= 50;
+  const isPassed = typeof activeResult.is_passed === 'boolean' ? activeResult.is_passed : percentage >= (quizConfig.passing_percentage || 50);
   const passFail = isPassed ? 'PASSED' : 'FAILED';
   const skillLevel = (activeResult.skill_level || (percentage >= 85 ? 'Expert' : percentage >= 70 ? 'Advanced' : percentage >= 50 ? 'Intermediate' : percentage >= 30 ? 'Beginner' : 'Foundation')) as SkillLevel;
   
@@ -341,8 +342,10 @@ export default function ResultPage() {
                 <img src="/logo.png" alt="Hadescore" className="w-full h-full object-contain" />
               </div>
               <div>
-                <div className="text-xs font-extrabold text-sky-300 uppercase tracking-wider">
-                  Hadescore Pvt Ltd
+                <div className="flex items-center">
+                  <span className="font-display font-black text-xs sm:text-sm tracking-tight">
+                    <span className="text-[#00D8F6]">HADES</span><span className="text-white">CORE</span> <span className="text-[#00D8F6]">PVT LTD</span>
+                  </span>
                 </div>
                 <div className="text-[11px] text-white/60 tracking-wider">
                   Learn | Build | Grow • Official Student Initiative
@@ -386,7 +389,7 @@ export default function ResultPage() {
           <Link to="/home" className="hover:text-slate-800 font-semibold transition-colors flex items-center gap-1">
             ← Explore other domains & quizzes
           </Link>
-          <span>Hadescore Pvt Ltd • All Rights Reserved</span>
+          <span>HADESCORE PVT LTD • All Rights Reserved</span>
         </div>
 
       </main>

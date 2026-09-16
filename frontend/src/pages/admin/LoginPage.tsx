@@ -26,10 +26,6 @@ export default function AdminLoginPage() {
   });
 
   const onSubmit = async (data: AdminLoginInput) => {
-    if (!isSupabaseConfigured) {
-      setError('Supabase not configured. Add credentials to .env file.');
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
@@ -66,8 +62,13 @@ export default function AdminLoginPage() {
             />
           </div>
           
-          <h1 className="font-display font-black text-2xl sm:text-3xl text-white tracking-tight mb-2">
-            Hadescore <span className="bg-gradient-to-r from-indigo-400 via-purple-300 to-sky-400 bg-clip-text text-transparent">Admin</span>
+          <h1 className="font-display font-black text-2xl sm:text-3xl text-white tracking-tight mb-2 flex flex-wrap items-center justify-center gap-2">
+            <span>
+              <span className="text-[#00D8F6]">HADES</span><span className="text-white">CORE</span> <span className="text-[#00D8F6]">PVT LTD</span>
+            </span>
+            <span className="bg-gradient-to-r from-indigo-400 via-purple-300 to-sky-400 bg-clip-text text-transparent">
+              Admin
+            </span>
           </h1>
           <p className="text-slate-400 text-xs sm:text-sm font-medium">
             Sign in to access the assessment dashboard
@@ -80,13 +81,7 @@ export default function AdminLoginPage() {
           <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-cyan-400" />
 
           <div className="p-7 sm:p-9">
-            {/* Warning banner if Supabase not ready */}
-            {!isSupabaseConfigured && (
-              <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-start gap-2.5">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>Supabase credentials not configured in <code>.env</code>.</span>
-              </div>
-            )}
+
 
             {error && (
               <div className="mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex items-center gap-2.5 text-rose-300 text-xs animate-in fade-in duration-200">

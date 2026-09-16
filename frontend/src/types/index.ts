@@ -262,6 +262,10 @@ export interface Lead {
   last_activity_at: string;
   created_at: string;
   updated_at: string;
+  // Optional quiz result fields (joined from quiz_results)
+  quiz_total_questions?: number;
+  quiz_correct_answers?: number;
+  quiz_percentage?: number;
   // Joined
   student?: Student;
 }

@@ -25,6 +25,8 @@ import {
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { AdminStatCard } from '@/components/admin/AdminStatCard';
 import { getDashboardStats, getLeadsByDay, getDomainPopularity } from '@/services/adminService';
+import { getLocalStudents } from '@/services/studentService';
+import { getLocalLeads } from '@/services/leadService';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import type { DashboardStats } from '@/types';
 
@@ -65,7 +67,76 @@ export default function AdminDashboardPage() {
   const navigate = useNavigate();
 
   const loadData = useCallback(async () => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured) {
+      try {
+        const localStudents = getLocalStudents();
+        const localLeads = getLocalLeads();
+
+        const totalStudents = localStudents.length;
+        const hotLeads = localLeads.filter((l: any) => l.lead_status === 'HOT').length;
+        const warmLeads = localLeads.filter((l: any) => l.lead_status === 'WARM').length;
+        const nurtureLeads = localLeads.filter((l: any) => l.lead_status === 'NURTURE').length;
+        const bootcampCount = localLeads.filter((l: any) => l.has_registered_bootcamp).length;
+
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const newToday = localStudents.filter((s: any) => s.created_at?.startsWith(todayStr)).length;
+        const attempts = localLeads.filter((l: any) => l.has_completed_quiz || (l.session_count && l.session_count > 0)).length;
+        const completed = localLeads.filter((l: any) => l.has_completed_quiz).length;
+
+        setStats({
+          total_students: totalStudents,
+          new_leads_today: newToday,
+          quiz_attempts: attempts,
+          completed_quizzes: completed,
+          bootcamp_registrations: bootcampCount,
+          hot_leads: hotLeads,
+          warm_leads: warmLeads,
+          nurture_leads: nurtureLeads,
+          conversion_rate: totalStudents > 0 ? parseFloat(((bootcampCount / totalStudents) * 100).toFixed(1)) : 0,
+        });
+
+        // Dynamic domain popularity
+        const domainCounts: Record<string, number> = {};
+        localStudents.forEach((s) => {
+          const dName = s.preferred_domain?.name || 'General';
+          domainCounts[dName] = (domainCounts[dName] || 0) + 1;
+        });
+
+        const popArray = Object.entries(domainCounts).map(([name, count]) => ({ name, count }));
+        if (popArray.length > 0) {
+          setDomainPop(popArray);
+        } else {
+          setDomainPop([]);
+        }
+
+        // Dynamic past 7 days velocity
+        const daysMap: Record<string, number> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(Date.now() - i * 86400000);
+          const isoKey = d.toISOString().slice(0, 10);
+          daysMap[isoKey] = 0;
+        }
+
+        localStudents.forEach((s) => {
+          if (s.created_at) {
+            const key = s.created_at.slice(0, 10);
+            if (daysMap[key] !== undefined) {
+              daysMap[key]++;
+            }
+          }
+        });
+
+        const chartData = Object.entries(daysMap).map(([isoKey, count]) => {
+          const d = new Date(isoKey);
+          return {
+            date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            count,
+          };
+        });
+        setLeadsByDay(chartData);
+      } catch {}
+      return;
+    }
     try {
       setIsLiveSyncing(true);
       const [dashStats, dayData, domData] = await Promise.all([
