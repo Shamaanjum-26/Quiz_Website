@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="javaPlate" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#F1F5F9" />
+    </linearGradient>
+    <linearGradient id="javaSteamRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EA2D2E" />
+      <stop offset="100%" stop-color="#F89820" />
+    </linearGradient>
+    <linearGradient id="javaCupBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5382A1" />
+      <stop offset="100%" stop-color="#007396" />
+    </linearGradient>
+    <filter id="javaShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity="0.18" />
+    </filter>
+  </defs>
+
+  <!-- Clean rounded container plate -->
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#javaPlate)" stroke="#CBD5E1" stroke-width="2" />
+
+  <!-- Official Java Logo Emblem -->
+  <g transform="translate(18, 14) scale(0.72)" filter="url(#javaShadow)">
+    <!-- Top Steam Whirls -->
+    <path fill="url(#javaSteamRed)" d="M57.6 15.6c0 0-9.8 11.2 7 24.2 13.6 10.6 8.3 19.8 8.3 19.8s12.5-9.8-1.5-22.7c-13.8-12.8-13.8-21.3-13.8-21.3z" />
+    <path fill="url(#javaSteamRed)" d="M41.8 30.6c0 0-8.2 8.7 5.7 18.8 11.3 8.2 6.8 15.4 6.8 15.4s10.3-7.6-1.2-17.6c-11.4-10-11.3-16.6-11.3-16.6z" />
+    <path fill="url(#javaSteamRed)" d="M74.8 32.2c0 0-6.7 7.1 4.7 15.4 9.3 6.7 5.6 12.6 5.6 12.6s8.5-6.2-1-14.4c-9.3-8.2-9.3-13.6-9.3-13.6z" />
+
+    <!-- Cup Body & Saucer Base -->
+    <path fill="url(#javaCupBlue)" d="M30 67c0 0-2.4 17.5 19.5 25.8 19.6 7.4 46.5 4.3 46.5 4.3s3.8-4.5-8.4-6.8c-14.6-2.8-31-4.8-41.6-11.4-8-5-8.2-8.5-8.2-8.5l-7.8-3.4z" />
+    <path fill="url(#javaCupBlue)" d="M88.5 70.8c6.8-1 12.5 1.5 14.8 5.6 3.2 5.8-2.2 13-13.5 17.8l2.6-3.8c7.4-3.5 10.8-7.9 8.7-11.6-1.5-2.7-5.5-4.2-10.4-3.8l-2.2-4.2z" />
+    <path fill="url(#javaCupBlue)" d="M23 103.5c0 0 15 7.5 49 7.5 30.2 0 46-7.5 46-7.5s-8.2 4.2-42.2 4.2c-31 0-52.8-4.2-52.8-4.2z" />
+    <path fill="url(#javaCupBlue)" d="M16 117c0 0 20.8 7.5 61.2 7.5 36.2 0 54.8-7.5 54.8-7.5s-12.8 4.6-51.5 4.6c-37.4 0-64.5-4.6-64.5-4.6z" />
+  </g>
+</svg>

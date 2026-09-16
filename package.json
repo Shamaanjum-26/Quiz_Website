@@ -1,0 +1,27 @@
+{
+  "name": "skillprobe-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SkillProbe - Student Skill Assessment, Skill Report, Free Bootcamp & Lead Generation Platform",
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspace=frontend",
+    "preview": "npm run preview --workspace=frontend",
+    "lint": "npm run lint --workspace=frontend"
+  },
+  "keywords": [
+    "assessment",
+    "quiz",
+    "lead-generation",
+    "bootcamp",
+    "supabase",
+    "react",
+    "typescript",
+    "vite"
+  ],
+  "author": "SkillProbe Team",
+  "license": "MIT"
+}

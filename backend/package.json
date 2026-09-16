@@ -1,0 +1,11 @@
+{
+  "name": "skillprobe-backend",
+  "version": "1.0.0",
+  "description": "SkillProbe Backend Service & Edge Functions",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "deploy": "supabase functions deploy calculate-score --project-ref uesbzexfccxsulxormra && supabase functions deploy send-email --project-ref uesbzexfccxsulxormra && supabase functions deploy send-whatsapp --project-ref uesbzexfccxsulxormra"
+  }
+}
