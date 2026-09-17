@@ -18,14 +18,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { createOrGetStudent, getStudentByEmail } from '@/services/studentService';
-import { getLeadForStudent } from '@/services/leadService';
-import { getStoredQuizConfig } from '@/services/quizService';
 import { getDomains } from '@/services/quizService';
 import { useUTM } from '@/hooks/useUTM';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { toast } from '@/hooks/useToast';
 import { TECH_DOMAINS, type TechDomainOption } from '@/data/techDomains';
-import type { Domain } from '@/types';
 import { FullscreenProctorConfirmModal } from '@/components/quiz/FullscreenProctorConfirmModal';
 
 export default function RegisterPage() {
