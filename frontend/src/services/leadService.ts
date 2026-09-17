@@ -494,6 +494,8 @@ export async function exportLeadsCSV(): Promise<string> {
 }
 
 // ── Admin: WhatsApp Automation for Unenrolled Students ───────
+const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || 'https://quiz-site-2ixp.onrender.com';
+
 export async function fetchWhatsAppAutomationStatus(): Promise<{
   success: boolean;
   enabled: boolean;
@@ -503,7 +505,7 @@ export async function fetchWhatsAppAutomationStatus(): Promise<{
   customTemplate?: string;
 }> {
   try {
-    const res = await fetch('http://localhost:5000/api/automation/whatsapp/status');
+    const res = await fetch(`${BACKEND_URL}/api/automation/whatsapp/status`);
     if (res.ok) {
       return await res.json();
     }
@@ -522,7 +524,7 @@ export async function triggerAutomatedWhatsAppForUnenrolled(): Promise<{
   recipients?: Array<{ name: string; mobile: string; domain: string }>;
 }> {
   try {
-    const res = await fetch('http://localhost:5000/api/automation/whatsapp/trigger', {
+    const res = await fetch(`${BACKEND_URL}/api/automation/whatsapp/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ force: true }),
