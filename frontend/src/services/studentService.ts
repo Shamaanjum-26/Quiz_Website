@@ -241,6 +241,7 @@ export function saveLocalStudent(data: StudentRegistrationData): { student: Stud
     });
     localStorage.setItem(LOCAL_LEADS_KEY, JSON.stringify(leads));
     localStorage.removeItem('hadescore_all_leads_deleted');
+    notifyDataChange('new_student_or_lead');
   } catch {}
 
   return { student: newStudent, isNew: true };
@@ -352,6 +353,8 @@ export async function createOrGetStudent(
       lead_status: 'NURTURE',
       qualification_reason: 'NURTURE: initial registration',
     });
+
+    notifyDataChange('new_student_or_lead');
 
     return { student: created as Student, isNew: true };
   } catch (err) {

@@ -28,6 +28,7 @@ import { getDashboardStats, getLeadsByDay, getDomainPopularity } from '@/service
 import { getLocalStudents } from '@/services/studentService';
 import { getLocalLeads } from '@/services/leadService';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
+import { subscribeToDataChanges } from '@/lib/sync';
 import type { DashboardStats } from '@/types';
 
 const INITIAL_STATS: DashboardStats = {
@@ -157,6 +158,11 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     loadData();
 
+    // Cross-tab and local broadcast channel sync
+    const unsubscribeSync = subscribeToDataChanges(() => {
+      loadData();
+    });
+
     // Supabase Real-Time subscription for instant dashboard updates
     const channel = supabase
       .channel('admin-dashboard-realtime')
@@ -177,10 +183,11 @@ export default function AdminDashboardPage() {
       })
       .subscribe();
 
-    // Polling heartbeat every 6 seconds
-    const interval = setInterval(loadData, 6000);
+    // Polling heartbeat every 4 seconds
+    const interval = setInterval(loadData, 4000);
 
     return () => {
+      unsubscribeSync();
       supabase.removeChannel(channel);
       clearInterval(interval);
     };

@@ -31,7 +31,8 @@ import {
   getLocalStudents,
   LOCAL_STUDENTS_KEY,
 } from '@/services/studentService';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import supabase, { isSupabaseConfigured } from '@/lib/supabase';
+import { subscribeToDataChanges } from '@/lib/sync';
 import { formatDate, formatRelativeTime } from '@/lib/analytics';
 import { toast } from '@/hooks/useToast';
 import type { Student, StudentFilters } from '@/types';
@@ -127,6 +128,38 @@ export default function AdminStudentsPage() {
 
   useEffect(() => {
     load();
+
+    // 1. Cross-tab and local real-time listener (updates instantaneously in 0ms)
+    const unsubscribeSync = subscribeToDataChanges(() => {
+      load();
+    });
+
+    // 2. Supabase Realtime channel subscription for live updates from any user
+    let channel: any = null;
+    if (isSupabaseConfigured) {
+      channel = supabase
+        .channel('admin-students-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
+          load();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
+          load();
+        })
+        .subscribe();
+    }
+
+    // 3. Fallback heartbeat polling every 4 seconds
+    const interval = setInterval(() => {
+      load();
+    }, 4000);
+
+    return () => {
+      unsubscribeSync();
+      clearInterval(interval);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, [load]);
 
   // Filter students based on search and selected calendar date

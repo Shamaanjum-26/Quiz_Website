@@ -1,5 +1,6 @@
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { persistQuizState, clearQuizState } from '@/lib/analytics';
+import { notifyDataChange } from '@/lib/sync';
 import type { Domain, Question, QuizAttempt, QuizAnswer, QuizResult } from '@/types';
 
 // ── Get all active domains ────────────────────────────────────
@@ -253,6 +254,7 @@ export async function submitQuiz(
       const data = await res.json();
       if (data && data.result) {
         clearQuizState();
+        notifyDataChange('quiz_submitted');
         return {
           id: data.result.attemptId,
           attempt_id: data.result.attemptId,
@@ -405,6 +407,7 @@ export async function submitQuiz(
     .maybeSingle();
 
   clearQuizState();
+  notifyDataChange('quiz_submitted');
 
   const finalResult: QuizResult = {
     id: result?.id || 'res-' + attemptId,

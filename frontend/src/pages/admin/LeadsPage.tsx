@@ -27,6 +27,8 @@ import {
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import supabase, { isSupabaseConfigured } from '@/lib/supabase';
+import { subscribeToDataChanges } from '@/lib/sync';
 import { AdminTableSkeleton } from '@/components/admin/AdminTableSkeleton';
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState';
 import {
@@ -37,7 +39,6 @@ import {
   exportLeadsCSV,
   triggerAutomatedWhatsAppForUnenrolled,
 } from '@/services/leadService';
-import { isSupabaseConfigured } from '@/lib/supabase';
 import { formatRelativeTime } from '@/lib/analytics';
 import { toast } from '@/hooks/useToast';
 import type { Lead, LeadStatus, LeadFilters } from '@/types';
@@ -273,6 +274,41 @@ export default function AdminLeadsPage() {
 
   useEffect(() => {
     load();
+
+    // 1. Cross-tab and local real-time listener (updates instantaneously in 0ms)
+    const unsubscribeSync = subscribeToDataChanges(() => {
+      load();
+    });
+
+    // 2. Supabase Realtime channel subscription for live updates from any user
+    let channel: any = null;
+    if (isSupabaseConfigured) {
+      channel = supabase
+        .channel('admin-leads-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
+          load();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
+          load();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_results' }, () => {
+          load();
+        })
+        .subscribe();
+    }
+
+    // 3. Fallback heartbeat polling every 4 seconds
+    const interval = setInterval(() => {
+      load();
+    }, 4000);
+
+    return () => {
+      unsubscribeSync();
+      clearInterval(interval);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, [load]);
 
   // Duplicate Lead Detection Algorithm
