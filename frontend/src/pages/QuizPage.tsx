@@ -578,6 +578,14 @@ export default function QuizPage() {
         timeTakenSeconds: timeTakenSecs,
       };
 
+      // Non-blocking lead activity tracking
+      if (isSupabaseConfigured && !attemptId.startsWith('dev-')) {
+        trackLeadActivity(studentId, 'quiz_completed', 20, {
+          domain_id: domain?.id,
+          attempt_id: attemptId,
+        }).catch(() => {});
+      }
+
       let result: any = null;
       if (isSupabaseConfigured && !attemptId.startsWith('dev-')) {
         try {
@@ -585,16 +593,10 @@ export default function QuizPage() {
         } catch (subErr) {
           console.warn('submitQuiz warning:', subErr);
         }
-        try {
-          await trackLeadActivity(studentId, 'quiz_completed', 20, {
-            domain_id: domain?.id,
-            attempt_id: attemptId,
-          });
-        } catch {}
       }
 
       if (!result) {
-        // Construct clean result record
+        // Construct clean result record instantly
         const answered = Object.values(quiz.state.answers).filter(Boolean).length;
         const total = quiz.state.questions.length || 10;
         const fakeScore = Math.floor((answered / total) * 80) + Math.round(Math.random() * 20);
@@ -650,13 +652,11 @@ export default function QuizPage() {
   }, [studentId, attemptId, quiz.state, domain, navigate, stopProctoring, timeLeft, domainSlug]);
 
   if (loading) {
-    const activeConfig = getStoredQuizConfig();
-    const displayQCount = activeConfig.questions_per_quiz || 10;
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-10 h-10 animate-spin text-brand-600 mx-auto mb-4" />
-          <p className="text-gray-600 font-medium">Preparing your {displayQCount}-question assessment...</p>
+          <p className="text-gray-600 font-medium">Preparing your assessment...</p>
           <p className="text-xs text-gray-400 mt-1">Adaptive AI & Curated Skill Assessment</p>
         </div>
       </div>
@@ -679,7 +679,9 @@ export default function QuizPage() {
   }
 
   const { questions, answers, currentIndex } = quiz.state;
-  const currentQuestion = questions[currentIndex];
+  const currentQ = questions[currentIndex] || null;
+  const answeredCount = quiz.answeredCount;
+  const isLastQuestion = quiz.isLast;
   const progress = questions.length > 0 ? ((currentIndex + 1) / questions.length) * 100 : 0;
   const isTimeLow = timeLeft < 5 * 60; // Less than 5 min left
   const domainIcon = getDomainIconPath((domain as any)?.slug || domainSlug, domain?.icon, domain?.name);
@@ -798,7 +800,7 @@ export default function QuizPage() {
               {/* Finish Quiz Button */}
               <Button
                 type="button"
-                onClick={() => handleSubmit(false)}
+                onClick={() => setShowConfirm(true)}
                 disabled={submitting}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-4 sm:px-5 text-xs sm:text-sm font-semibold shadow-sm shadow-indigo-600/20 hover:shadow-md transition-all cursor-pointer flex items-center gap-1.5"
                 id="finish-assessment-header-btn"
@@ -876,19 +878,15 @@ export default function QuizPage() {
                   <div className="space-y-3.5 relative z-10" role="radiogroup" aria-label="Answer options">
                     {currentQ.options && currentQ.options.length > 0 ? (
                       currentQ.options.map((opt, optIdx) => {
-                        const isSelected = selectedOptionId === opt.id;
+                        const isSelected = answers[currentQ.id] === opt.id;
                         const optionLetters = ['A', 'B', 'C', 'D', 'E'];
                         const letter = optionLetters[optIdx] || String(optIdx + 1);
-
-                        function handleOptionSelect(id: any, id1: any): void {
-                          throw new Error('Function not implemented.');
-                        }
 
                         return (
                           <button
                             key={opt.id}
                             type="button"
-                            onClick={() => handleOptionSelect(currentQ.id, opt.id)}
+                            onClick={() => quiz.selectAnswer(currentQ.id, opt.id)}
                             className={cn(
                               'w-full text-left p-4 sm:p-5 rounded-2xl border-2 transition-all flex items-center gap-4 group cursor-pointer relative overflow-hidden',
                               isSelected
@@ -935,7 +933,7 @@ export default function QuizPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => quiz.previousQuestion()}
+                      onClick={() => quiz.goPrev()}
                       disabled={currentIndex === 0}
                       className="rounded-2xl px-5 border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
                       id="prev-question-btn"
@@ -948,7 +946,7 @@ export default function QuizPage() {
                       {isLastQuestion ? (
                         <Button
                           type="button"
-                          onClick={() => handleQuizSubmit(false)}
+                          onClick={() => setShowConfirm(true)}
                           disabled={submitting}
                           className="rounded-2xl px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold shadow-md shadow-emerald-600/20 hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
                           id="submit-quiz-final-btn"
@@ -968,7 +966,7 @@ export default function QuizPage() {
                       ) : (
                         <Button
                           type="button"
-                          onClick={() => quiz.nextQuestion()}
+                          onClick={() => quiz.goNext()}
                           className="rounded-2xl px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md shadow-indigo-600/20 hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
                           id="next-question-btn"
                         >

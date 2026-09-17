@@ -458,33 +458,33 @@ async function submitQuizAttempt(attemptId, studentId, answers) {
   const answerEntries = Object.entries(answers || {});
   const questionIds = answerEntries.map(([qId]) => qId);
 
-  // 1. Fetch attempt
+  // 1 & 2. Fetch attempt and authoritative correct options in PARALLEL
   let attempt = null;
-  try {
-    const attemptArr = await supabaseFetch(`quiz_attempts?id=eq.${attemptId}&select=*`);
-    if (Array.isArray(attemptArr) && attemptArr.length > 0) {
-      attempt = attemptArr[0];
-    }
-  } catch {}
+  let correctOptions = [];
+
+  const [attemptRes, optionsRes] = await Promise.allSettled([
+    supabaseFetch(`quiz_attempts?id=eq.${attemptId}&select=*`),
+    questionIds.length > 0
+      ? supabaseFetch(`question_options?question_id=in.(${questionIds.join(',')})&select=id,question_id,is_correct`)
+      : Promise.resolve([])
+  ]);
+
+  if (attemptRes.status === 'fulfilled' && Array.isArray(attemptRes.value) && attemptRes.value.length > 0) {
+    attempt = attemptRes.value[0];
+  }
+  if (optionsRes.status === 'fulfilled' && Array.isArray(optionsRes.value)) {
+    correctOptions = optionsRes.value;
+  }
 
   const domainId = attempt?.domain_id || null;
-
-  // 2. Fetch authoritative correct options from database
-  let correctOptions = [];
-  if (questionIds.length > 0) {
-    correctOptions = await supabaseFetch(`question_options?question_id=in.(${questionIds.join(',')})&select=id,question_id,is_correct`);
-  }
-
   const correctOptionMap = new Map();
-  if (Array.isArray(correctOptions)) {
-    correctOptions.forEach(opt => {
-      if (opt.is_correct) {
-        correctOptionMap.set(opt.question_id, opt.id);
-      }
-    });
-  }
+  correctOptions.forEach(opt => {
+    if (opt.is_correct) {
+      correctOptionMap.set(opt.question_id, opt.id);
+    }
+  });
 
-  // 3. Evaluate answers
+  // 3. Evaluate answers in-memory
   let correctAnswers = 0;
   let incorrectAnswers = 0;
   let unanswered = 0;
@@ -500,10 +500,8 @@ async function submitQuizAttempt(attemptId, studentId, answers) {
     }
   }
 
-  // Calculate percentage: (correct / total) * 100
   const percentage = Math.round((correctAnswers / totalQuestions) * 100);
 
-  // Determine skill level
   let skillLevel = 'Foundation';
   if (percentage >= 90) skillLevel = 'Expert';
   else if (percentage >= 75) skillLevel = 'Advanced';
@@ -511,8 +509,7 @@ async function submitQuizAttempt(attemptId, studentId, answers) {
   else if (percentage >= 40) skillLevel = 'Beginner';
   else skillLevel = 'Foundation';
 
-  const config = await getQuizConfig();
-  const passingScore = config.passing_percentage || 50;
+  const passingScore = 50;
   const passed = percentage >= passingScore;
 
   // 4. Calculate time taken
@@ -520,42 +517,14 @@ async function submitQuizAttempt(attemptId, studentId, answers) {
   const now = new Date();
   const timeTakenSeconds = Math.max(1, Math.round((now.getTime() - startedAt.getTime()) / 1000));
 
-  // 5. Persist answers to quiz_answers table
-  try {
-    const answersToInsert = answerEntries.map(([qId, optId]) => ({
-      attempt_id: attemptId,
-      question_id: qId,
-      selected_option_id: optId || null,
-      answered_at: now.toISOString()
-    }));
+  // 5, 6, 7. Persist answers, attempt status, and results in PARALLEL non-blocking
+  const answersToInsert = answerEntries.map(([qId, optId]) => ({
+    attempt_id: attemptId,
+    question_id: qId,
+    selected_option_id: optId || null,
+    answered_at: now.toISOString()
+  }));
 
-    if (answersToInsert.length > 0) {
-      await supabaseFetch('quiz_answers', {
-        method: 'POST',
-        headers: { 'Prefer': 'resolution=merge-duplicates' },
-        body: answersToInsert
-      });
-    }
-  } catch (ansErr) {
-    console.warn('[QuizEngine] Note saving quiz_answers:', ansErr.message);
-  }
-
-  // 6. Update quiz_attempts status
-  try {
-    await supabaseFetch(`quiz_attempts?id=eq.${attemptId}`, {
-      method: 'PATCH',
-      body: {
-        status: 'submitted',
-        submitted_at: now.toISOString(),
-        time_taken_seconds: timeTakenSeconds,
-        updated_at: now.toISOString()
-      }
-    });
-  } catch (attErr) {
-    console.warn('[QuizEngine] Note updating quiz_attempts:', attErr.message);
-  }
-
-  // 7. Insert or update quiz_results
   const resultPayload = {
     attempt_id: attemptId,
     student_id: studentId,
@@ -573,15 +542,39 @@ async function submitQuizAttempt(attemptId, studentId, answers) {
     created_at: now.toISOString()
   };
 
-  try {
-    await supabaseFetch('quiz_results', {
+  const persistTasks = [
+    // Update quiz_attempts status
+    supabaseFetch(`quiz_attempts?id=eq.${attemptId}`, {
+      method: 'PATCH',
+      body: {
+        status: 'submitted',
+        submitted_at: now.toISOString(),
+        time_taken_seconds: timeTakenSeconds,
+        updated_at: now.toISOString()
+      }
+    }),
+    // Insert quiz_results
+    supabaseFetch('quiz_results', {
       method: 'POST',
       headers: { 'Prefer': 'resolution=merge-duplicates' },
       body: [resultPayload]
-    });
-  } catch (resErr) {
-    console.warn('[QuizEngine] Note saving quiz_results:', resErr.message);
+    })
+  ];
+
+  if (answersToInsert.length > 0) {
+    persistTasks.push(
+      supabaseFetch('quiz_answers', {
+        method: 'POST',
+        headers: { 'Prefer': 'resolution=merge-duplicates' },
+        body: answersToInsert
+      })
+    );
   }
+
+  // Fire DB persistence concurrently
+  Promise.allSettled(persistTasks).catch((err) => {
+    console.warn('[QuizEngine] Background persist warning:', err.message);
+  });
 
   return {
     attemptId,

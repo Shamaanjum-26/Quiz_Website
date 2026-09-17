@@ -236,13 +236,19 @@ export async function submitQuiz(
     selected_option_id: optionId,
   }));
 
-  // 1. Try Hadescore Backend Quiz Engine (Server-Side Grading & Anti-Cheat)
+  // 1. Try Hadescore Backend Quiz Engine with fast 2.5s timeout (Server-Side Grading & Anti-Cheat)
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+
     const res = await fetch(`${BACKEND_URL}/api/quiz/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ attemptId, studentId, answers }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
+
     if (res.ok) {
       const data = await res.json();
       if (data && data.result) {
@@ -266,44 +272,25 @@ export async function submitQuiz(
       }
     }
   } catch (srvErr) {
-    console.warn('[quizService] Backend submit notice, trying edge/supabase fallback:', srvErr);
+    console.warn('[quizService] Backend submit notice, trying fast local/supabase fallback:', srvErr);
   }
 
-  // 2. Try Edge Function
-  try {
-    const { data, error } = await supabase.functions.invoke('calculate-score', {
-      body: {
-        attemptId,
-        attempt_id: attemptId,
-        student_id: studentId,
-        answers: answersArray.map((a) => ({
-          questionId: a.question_id,
-          question_id: a.question_id,
-          selectedOptionId: a.selected_option_id,
-          selected_option_id: a.selected_option_id,
-        })),
-      },
-    });
-
-    if (!error && data && data.percentage !== undefined) {
-      clearQuizState();
-      return data as QuizResult;
-    }
-  } catch (fnErr) {
-    console.warn('Edge function scoring notice:', fnErr);
-  }
-
-  // 3. Resilient fallback scoring directly with Supabase
+  // 2. Resilient instant scoring directly with Supabase
   const questionIds = Object.keys(answers);
-  const { data: options } = await supabase
-    .from('question_options')
-    .select('id, question_id, is_correct')
-    .in('question_id', questionIds);
+  let correctMap = new Map<string, string>();
 
-  const correctMap = new Map<string, string>();
-  (options || []).forEach((opt) => {
-    if (opt.is_correct) correctMap.set(opt.question_id, opt.id);
-  });
+  if (questionIds.length > 0) {
+    try {
+      const { data: options } = await supabase
+        .from('question_options')
+        .select('id, question_id, is_correct')
+        .in('question_id', questionIds);
+
+      (options || []).forEach((opt) => {
+        if (opt.is_correct) correctMap.set(opt.question_id, opt.id);
+      });
+    } catch {}
+  }
 
   let correctCount = 0;
   let incorrectCount = 0;
@@ -363,52 +350,34 @@ export async function submitQuiz(
         'Join the Free Bootcamp to master the domain from scratch with live mentor guidance.',
       ];
 
-  // Mark attempt submitted
-  try {
-    await supabase
-      .from('quiz_attempts')
-      .update({ status: 'submitted', completed_at: new Date().toISOString() })
-      .eq('id', attemptId);
-  } catch {
-    // Ignore error
-  }
-
-  // Update lead score and status
-  try {
-    const { data: lead } = await supabase
-      .from('leads')
-      .select('lead_score')
-      .eq('student_id', studentId)
-      .maybeSingle();
-
-    if (lead) {
-      const addedScore = isPassed ? 35 : 20;
-      const newScore = (lead.lead_score || 0) + addedScore;
-      const newStatus = isPassed || newScore >= 60 ? 'HOT' : newScore >= 35 ? 'WARM' : 'NURTURE';
-      await supabase
-        .from('leads')
-        .update({
-          has_completed_quiz: true,
-          lead_score: newScore,
-          lead_status: newStatus,
-          qualification_reason: isPassed
-            ? `Passed assessment with ${percentage}% score`
-            : `Completed assessment (${percentage}%), needs upskilling`,
-          last_activity_at: new Date().toISOString(),
-        })
-        .eq('student_id', studentId);
-    }
-  } catch {}
-
-  // ── Automated WhatsApp Bootcamp Invitation ──
-  // If candidate has not enrolled in bootcamp, automatically trigger WhatsApp invite!
-  try {
+  // Run DB writes & automations concurrently in the background so submission is instantaneous!
+  Promise.allSettled([
+    supabase.from('quiz_attempts').update({ status: 'submitted', completed_at: new Date().toISOString() }).eq('id', attemptId),
+    supabase.from('quiz_results').upsert({
+      attempt_id: attemptId,
+      student_id: studentId,
+      total_questions: totalQuestions,
+      correct_answers: correctCount,
+      incorrect_answers: incorrectCount,
+      unanswered: unansweredCount,
+      total_marks: totalQuestions,
+      obtained_marks: correctCount,
+      percentage,
+      skill_level: skillLevel,
+      personalized_message: isPassed
+        ? `Congratulations! You scored ${percentage}% and successfully passed the quiz.`
+        : `You scored ${percentage}%. Keep learning and sharpening your fundamentals!`,
+      strengths,
+      weak_areas: weakAreas,
+      recommendations,
+      calculated_at: new Date().toISOString(),
+    }),
     fetch(`${BACKEND_URL}/api/automation/whatsapp/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, force: false }),
-    }).catch(() => {});
-  } catch {}
+    }).catch(() => {}),
+  ]).catch(() => {});
 
   // Upsert into quiz_results
   const { data: result } = await supabase

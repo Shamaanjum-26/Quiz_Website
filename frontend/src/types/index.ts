@@ -85,6 +85,7 @@ export interface StudentRegistrationData {
 
 // ── Questions ─────────────────────────────────────────────────
 export interface Question {
+  tier_label: string;
   id: string;
   domain_id: string;
   quiz_id?: string;
