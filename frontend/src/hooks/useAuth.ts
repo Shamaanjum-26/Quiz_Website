@@ -26,7 +26,7 @@ export function useAuth() {
 
 export function useAuthState(): AuthContextType {
   const [user, setUser] = useState<User | null>(() => {
-    if (typeof window !== 'undefined' && localStorage.getItem('skillprobe_admin_session') === 'true') {
+    if (typeof window !== 'undefined' && sessionStorage.getItem('skillprobe_admin_session') === 'true') {
       return { id: 'admin-master', email: 'admin@skillprobe.in' } as User;
     }
     return null;
@@ -35,16 +35,24 @@ export function useAuthState(): AuthContextType {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('skillprobe_admin_session') === 'true';
+      return sessionStorage.getItem('skillprobe_admin_session') === 'true';
     }
     return false;
   });
 
   useEffect(() => {
+    // Clear any stale persistent localStorage token so /admin always requires fresh login
+    try {
+      localStorage.removeItem('skillprobe_admin_session');
+    } catch {}
+
     if (!isSupabaseConfigured) {
-      if (localStorage.getItem('skillprobe_admin_session') === 'true') {
+      if (sessionStorage.getItem('skillprobe_admin_session') === 'true') {
         setUser({ id: 'admin-master', email: 'admin@hadescore.com' } as unknown as User);
         setIsAdmin(true);
+      } else {
+        setUser(null);
+        setIsAdmin(false);
       }
       setLoading(false);
       return;
@@ -52,11 +60,14 @@ export function useAuthState(): AuthContextType {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session?.user) {
+      if (session?.user && sessionStorage.getItem('skillprobe_admin_session') === 'true') {
         setUser(session.user);
         checkAdminStatus(session.user.id);
-      } else if (localStorage.getItem('skillprobe_admin_session') === 'true') {
+      } else if (sessionStorage.getItem('skillprobe_admin_session') === 'true') {
         setIsAdmin(true);
+      } else {
+        setUser(null);
+        setIsAdmin(false);
       }
       setLoading(false);
     });
@@ -64,9 +75,12 @@ export function useAuthState(): AuthContextType {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
-        if (session?.user) {
+        if (session?.user && sessionStorage.getItem('skillprobe_admin_session') === 'true') {
           setUser(session.user);
           checkAdminStatus(session.user.id);
+        } else if (sessionStorage.getItem('skillprobe_admin_session') !== 'true') {
+          setUser(null);
+          setIsAdmin(false);
         }
         setLoading(false);
       }
@@ -76,7 +90,7 @@ export function useAuthState(): AuthContextType {
   }, []);
 
   async function checkAdminStatus(userId?: string) {
-    if (localStorage.getItem('skillprobe_admin_session') === 'true') {
+    if (sessionStorage.getItem('skillprobe_admin_session') === 'true') {
       setIsAdmin(true);
       return;
     }
@@ -116,7 +130,7 @@ export function useAuthState(): AuthContextType {
       (customAdminPass && cleanPass === customAdminPass);
 
     if (isMasterEmail && isMasterPass) {
-      localStorage.setItem('skillprobe_admin_session', 'true');
+      sessionStorage.setItem('skillprobe_admin_session', 'true');
       setUser({ id: 'admin-master', email: cleanEmail || 'admin@hadescore.com' } as unknown as User);
       setIsAdmin(true);
       return;
@@ -130,7 +144,7 @@ export function useAuthState(): AuthContextType {
           password: cleanPass,
         });
         if (!error && authData?.user) {
-          localStorage.setItem('skillprobe_admin_session', 'true');
+          sessionStorage.setItem('skillprobe_admin_session', 'true');
           setUser(authData.user);
           setIsAdmin(true);
           return;
@@ -145,6 +159,7 @@ export function useAuthState(): AuthContextType {
   }
 
   async function signOut() {
+    sessionStorage.removeItem('skillprobe_admin_session');
     localStorage.removeItem('skillprobe_admin_session');
     try {
       await supabase.auth.signOut();

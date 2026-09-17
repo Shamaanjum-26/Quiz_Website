@@ -1,5 +1,6 @@
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { persistStudentId } from '@/lib/analytics';
+import { notifyDataChange } from '@/lib/sync';
 import type { Student, StudentRegistrationData, PaginatedResult, StudentFilters } from '@/types';
 
 export const LOCAL_STUDENTS_KEY = 'hadescore_local_students';
