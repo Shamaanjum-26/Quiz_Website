@@ -414,6 +414,7 @@ BEGIN
     'bootcamps', 'bootcamp_registrations', 'leads', 'admin_users'
   ]
   LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS trg_%s_updated_at ON %s', tbl, tbl);
     EXECUTE format(
       'CREATE TRIGGER trg_%s_updated_at BEFORE UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION update_updated_at()',
       tbl, tbl
@@ -437,6 +438,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_questions_count ON questions;
 CREATE TRIGGER trg_questions_count
 AFTER INSERT OR DELETE ON questions
 FOR EACH ROW EXECUTE FUNCTION sync_domain_question_count();
@@ -456,6 +458,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_bootcamp_seats ON bootcamp_registrations;
 CREATE TRIGGER trg_bootcamp_seats
 AFTER INSERT OR DELETE ON bootcamp_registrations
 FOR EACH ROW EXECUTE FUNCTION sync_bootcamp_seat_count();
@@ -477,6 +480,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS trg_on_auth_user_created ON auth.users;
 CREATE TRIGGER trg_on_auth_user_created
 AFTER INSERT ON auth.users
 FOR EACH ROW EXECUTE FUNCTION handle_new_user();

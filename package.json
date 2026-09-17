@@ -3,14 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "description": "SkillProbe - Student Skill Assessment, Skill Report, Free Bootcamp & Lead Generation Platform",
-  "workspaces": [
-    "frontend"
-  ],
   "scripts": {
-    "dev": "npm run dev --workspace=frontend",
-    "build": "npm run build --workspace=frontend",
-    "preview": "npm run preview --workspace=frontend",
-    "lint": "npm run lint --workspace=frontend"
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && node server.js",
+    "install:frontend": "cd frontend && npm install",
+    "install:backend": "cd backend && npm install",
+    "build:frontend": "cd frontend && npm run build"
   },
   "keywords": [
     "assessment",
@@ -25,3 +23,4 @@
   "author": "SkillProbe Team",
   "license": "MIT"
 }
+
