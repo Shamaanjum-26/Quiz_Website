@@ -432,12 +432,22 @@ export async function listStudents(
   const { data, error, count } = await query;
   if (error) throw error;
 
+  const deletedIds = getDeletedStudentIds();
+  const allDeleted = localStorage.getItem('hadescore_all_students_deleted') === 'true';
+
+  let rawList = (data || []) as (Student & { lead?: { lead_score: number; lead_status: string } })[];
+  if (allDeleted) {
+    rawList = [];
+  } else if (deletedIds.size > 0) {
+    rawList = rawList.filter((s) => !deletedIds.has(s.id) && !deletedIds.has(s.email?.toLowerCase()));
+  }
+
   return {
-    data: (data || []) as (Student & { lead?: { lead_score: number; lead_status: string } })[],
-    total: count || 0,
+    data: rawList,
+    total: allDeleted ? 0 : rawList.length,
     page,
     pageSize,
-    totalPages: Math.ceil((count || 0) / pageSize),
+    totalPages: Math.max(1, Math.ceil(rawList.length / pageSize)),
   };
 }
 
@@ -455,7 +465,8 @@ export async function exportStudentsCSV(filters: StudentFilters): Promise<string
 
     const { data, error } = await query;
     if (!error && data) {
-      list = data;
+      const deletedIds = getDeletedStudentIds();
+      list = (data as any[]).filter((s) => !deletedIds.has(s.id) && !deletedIds.has(s.email?.toLowerCase()));
     }
   }
 
@@ -491,7 +502,18 @@ export async function deleteStudent(studentId: string): Promise<void> {
 
   if (isSupabaseConfigured) {
     try {
-      // Cascade delete in strict foreign key order
+      // 1. Delete quiz_answers for any attempts by this student
+      const { data: attempts } = await supabase
+        .from('quiz_attempts')
+        .select('id')
+        .eq('student_id', studentId);
+
+      if (attempts && attempts.length > 0) {
+        const attemptIds = attempts.map((a: any) => a.id);
+        await supabase.from('quiz_answers').delete().in('attempt_id', attemptIds);
+      }
+
+      // 2. Cascade delete in strict foreign key order
       await supabase.from('email_logs').delete().eq('student_id', studentId);
       await supabase.from('whatsapp_logs').delete().eq('student_id', studentId);
       await supabase.from('bootcamp_registrations').delete().eq('student_id', studentId);
@@ -500,10 +522,9 @@ export async function deleteStudent(studentId: string): Promise<void> {
       await supabase.from('quiz_attempts').delete().eq('student_id', studentId);
       await supabase.from('lead_activities').delete().eq('student_id', studentId);
       await supabase.from('leads').delete().eq('student_id', studentId);
-      const { error } = await supabase.from('students').delete().eq('id', studentId);
-      if (error) throw error;
+      await supabase.from('students').delete().eq('id', studentId);
     } catch (err) {
-      console.warn('Supabase deleteStudent cascade warning:', err);
+      console.warn('Supabase deleteStudent cascade note:', err);
     }
   }
 }
@@ -516,6 +537,16 @@ export async function deleteAllStudents(studentIds?: string[]): Promise<void> {
   if (isSupabaseConfigured) {
     try {
       if (studentIds && studentIds.length > 0) {
+        const { data: attempts } = await supabase
+          .from('quiz_attempts')
+          .select('id')
+          .in('student_id', studentIds);
+
+        if (attempts && attempts.length > 0) {
+          const attemptIds = attempts.map((a: any) => a.id);
+          await supabase.from('quiz_answers').delete().in('attempt_id', attemptIds);
+        }
+
         await supabase.from('email_logs').delete().in('student_id', studentIds);
         await supabase.from('whatsapp_logs').delete().in('student_id', studentIds);
         await supabase.from('bootcamp_registrations').delete().in('student_id', studentIds);
@@ -524,9 +555,9 @@ export async function deleteAllStudents(studentIds?: string[]): Promise<void> {
         await supabase.from('quiz_attempts').delete().in('student_id', studentIds);
         await supabase.from('lead_activities').delete().in('student_id', studentIds);
         await supabase.from('leads').delete().in('student_id', studentIds);
-        const { error } = await supabase.from('students').delete().in('id', studentIds);
-        if (error) throw error;
+        await supabase.from('students').delete().in('id', studentIds);
       } else {
+        await supabase.from('quiz_answers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('email_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('whatsapp_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('bootcamp_registrations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
@@ -535,11 +566,10 @@ export async function deleteAllStudents(studentIds?: string[]): Promise<void> {
         await supabase.from('quiz_attempts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('lead_activities').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('leads').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        const { error } = await supabase.from('students').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        if (error) throw error;
+        await supabase.from('students').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       }
     } catch (err) {
-      console.warn('Supabase deleteAllStudents cascade warning:', err);
+      console.warn('Supabase deleteAllStudents cascade note:', err);
     }
   }
 }
