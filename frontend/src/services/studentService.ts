@@ -203,6 +203,15 @@ export function saveLocalStudent(data: StudentRegistrationData): { student: Stud
   localStorage.setItem(LOCAL_STUDENTS_KEY, JSON.stringify(students));
   localStorage.removeItem('hadescore_all_students_deleted');
   localStorage.setItem(DB_SEEDED_KEY, 'true');
+  
+  // Unblock from deleted set so new record is active
+  try {
+    const deletedIds = getDeletedStudentIds();
+    deletedIds.delete(emailNorm);
+    deletedIds.delete(newStudent.id);
+    localStorage.setItem(DELETED_STUDENTS_KEY, JSON.stringify(Array.from(deletedIds)));
+  } catch {}
+
   persistStudentId(newStudent.id);
 
   // Sync to local leads list as well

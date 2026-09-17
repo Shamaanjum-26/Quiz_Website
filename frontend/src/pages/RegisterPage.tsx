@@ -104,7 +104,7 @@ export default function RegisterPage() {
       .catch(() => {});
   }, []);
 
-  const onFormSubmit = (data: StudentRegistrationInput) => {
+  const onFormSubmit = async (data: StudentRegistrationInput) => {
     if (isCustomDomain && !customDomainText.trim()) {
       setCustomDomainError(true);
       customDomainInputRef.current?.focus();
@@ -129,6 +129,25 @@ export default function RegisterPage() {
       data.academic_year = otherAcademicYearText.trim();
     }
 
+    // Check if email is already registered before showing modal
+    setIsLoading(true);
+    try {
+      const existingStudent = await getStudentByEmail(data.email);
+      if (existingStudent) {
+        toast({
+          title: '⚠️ Email Already Registered',
+          description: `Candidate email '${data.email}' has already attended / registered for the assessment. Re-attempts with the same email are not permitted.`,
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoading(false);
+    }
+
     setPendingFormData(data);
     setShowProctorModal(true);
   };
@@ -140,24 +159,16 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       // ── Strict 1 Attempt Per Email Limit Enforcement ─────────────
-      try {
-        const config = getStoredQuizConfig();
-        const existingStudent = await getStudentByEmail(data.email);
-        if (existingStudent) {
-          const lead = await getLeadForStudent(existingStudent.id);
-          if (lead && (lead.has_completed_quiz || config.max_attempts === 1)) {
-            toast({
-              title: '⚠️ Assessment Attempt Limit Reached',
-              description: `Candidate email '${data.email}' has already completed an assessment. Only 1 attempt is allowed per candidate email address.`,
-              variant: 'destructive',
-            });
-            setIsLoading(false);
-            setShowProctorModal(false);
-            return;
-          }
-        }
-      } catch (checkErr) {
-        console.warn('Attempt check notice:', checkErr);
+      const existingStudent = await getStudentByEmail(data.email);
+      if (existingStudent) {
+        toast({
+          title: '⚠️ Assessment Attempt Limit Reached',
+          description: `Candidate email '${data.email}' has already registered / attended this assessment. Only 1 attempt is allowed per candidate.`,
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        setShowProctorModal(false);
+        return;
       }
 
       let chosenName = selectedDomainObj?.name || 'Python';
