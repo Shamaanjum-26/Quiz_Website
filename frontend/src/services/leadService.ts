@@ -279,12 +279,12 @@ export async function getLeadActivities(studentId: string): Promise<LeadActivity
 export async function listLeads(
   filters: LeadFilters,
   page = 1,
-  pageSize = 20
+  pageSize = 200
 ): Promise<PaginatedResult<Lead>> {
   if (!isSupabaseConfigured) {
     let list = getLocalLeads();
 
-    if (filters.status) {
+    if (filters.status && filters.status !== ('ALL' as any)) {
       list = list.filter((l) => l.lead_status === filters.status);
     }
     if (filters.search) {
@@ -304,94 +304,169 @@ export async function listLeads(
       data: list,
       total: list.length,
       page: 1,
-      pageSize: 200,
-      totalPages: 1,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(list.length / pageSize)),
     };
   }
 
-  let query = supabase
-    .from('leads')
-    .select(
-      `*, student:students(
-        full_name, email, mobile, college, branch, academic_year, state,
-        utm_source, utm_medium, utm_campaign, referral_code, created_at,
-        preferred_domain:domains(name, slug)
-      )`,
-      { count: 'exact' }
-    );
-
-  if (filters.status) query = query.eq('lead_status', filters.status);
-
-  if (filters.search) {
-    query = query.or(`student.full_name.ilike.%${filters.search}%,student.email.ilike.%${filters.search}%`);
-  }
-
-  if (filters.min_score !== undefined) query = query.gte('lead_score', filters.min_score);
-  if (filters.max_score !== undefined) query = query.lte('lead_score', filters.max_score);
-
-  const sortBy = filters.sort_by || 'lead_score';
-  const ascending = filters.sort_order === 'asc';
-  query = query.order(sortBy, { ascending });
-
-  const from = (page - 1) * pageSize;
-  query = query.range(from, from + pageSize - 1);
-
-  const { data, error, count } = await query;
-  if (error) throw error;
-
-  const leads = (data || []) as Lead[];
-
-  // ── Enrich leads with actual quiz result scores ──────────────
-  // For students who completed the quiz, fetch their latest quiz result
-  // so we can show the real correct/total ratio in the table.
   try {
-    const completedStudentIds = leads
-      .filter((l) => l.has_completed_quiz)
-      .map((l) => l.student_id)
-      .filter(Boolean);
+    let query = supabase
+      .from('leads')
+      .select(
+        `*, student:students(
+          id, full_name, email, mobile, college, branch, academic_year, state,
+          utm_source, utm_medium, utm_campaign, referral_code, created_at,
+          preferred_domain:domains(name, slug)
+        )`,
+        { count: 'exact' }
+      );
 
-    if (completedStudentIds.length > 0) {
-      const { data: quizResults } = await supabase
-        .from('quiz_results')
-        .select('student_id, correct_answers, total_questions, percentage')
-        .in('student_id', completedStudentIds)
-        .order('created_at', { ascending: false });
+    if (filters.status && filters.status !== ('ALL' as any)) {
+      query = query.eq('lead_status', filters.status);
+    }
 
-      if (quizResults && quizResults.length > 0) {
-        // Map: studentId -> latest quiz result (first result per student after ordering by desc)
-        const resultMap = new Map<string, { correct: number; total: number; pct: number }>();
-        for (const r of quizResults) {
-          if (!resultMap.has(r.student_id)) {
-            resultMap.set(r.student_id, {
-              correct: r.correct_answers ?? 0,
-              total: r.total_questions ?? 0,
-              pct: r.percentage ?? 0,
-            });
-          }
+    if (filters.min_score !== undefined) query = query.gte('lead_score', filters.min_score);
+    if (filters.max_score !== undefined) query = query.lte('lead_score', filters.max_score);
+
+    const sortBy = filters.sort_by || 'lead_score';
+    const ascending = filters.sort_order === 'asc';
+    query = query.order(sortBy, { ascending });
+
+    const from = (page - 1) * pageSize;
+    query = query.range(from, from + pageSize - 1);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    let leads = (data || []) as Lead[];
+
+    // If leads table in DB is empty or missing students, check students table to synthesize leads
+    if (leads.length === 0) {
+      try {
+        const { data: rawStudents } = await supabase
+          .from('students')
+          .select('*, preferred_domain:domains(name, slug)')
+          .order('created_at', { ascending: false })
+          .limit(pageSize);
+
+        if (rawStudents && rawStudents.length > 0) {
+          leads = rawStudents.map((st) => ({
+            id: 'lead-' + st.id,
+            student_id: st.id,
+            lead_score: 25,
+            lead_status: 'HOT' as const,
+            qualification_reason: 'Direct Student Registration',
+            has_completed_quiz: false,
+            has_viewed_result: false,
+            has_viewed_report: false,
+            has_clicked_premium_report: false,
+            has_registered_bootcamp: false,
+            has_verified_email: true,
+            has_whatsapp_opt_in: st.whatsapp_opt_in ?? true,
+            has_multiple_sessions: false,
+            session_count: 1,
+            last_activity_at: st.created_at || new Date().toISOString(),
+            created_at: st.created_at || new Date().toISOString(),
+            updated_at: st.updated_at || new Date().toISOString(),
+            student: st,
+          }));
         }
+      } catch (synthErr) {
+        console.warn('[listLeads] Student synthesis note:', synthErr);
+      }
+    }
 
-        // Attach quiz result fields to each matching lead
-        for (const lead of leads) {
-          const res = resultMap.get(lead.student_id);
-          if (res) {
-            (lead as any).quiz_correct_answers = res.correct;
-            (lead as any).quiz_total_questions = res.total;
-            (lead as any).quiz_percentage = res.pct;
+    // Filter by search safely client-side
+    if (filters.search && filters.search.trim()) {
+      const q = filters.search.toLowerCase().trim();
+      leads = leads.filter((l) => {
+        const s = l.student as any;
+        return (
+          s?.full_name?.toLowerCase().includes(q) ||
+          s?.email?.toLowerCase().includes(q) ||
+          s?.college?.toLowerCase().includes(q) ||
+          s?.mobile?.includes(q) ||
+          s?.preferred_domain?.name?.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    // If DB returned active records, remove stale local deletion flag
+    if (leads.length > 0) {
+      try {
+        localStorage.removeItem('hadescore_all_leads_deleted');
+      } catch {}
+    }
+
+    // ── Enrich leads with actual quiz result scores ──────────────
+    try {
+      const completedStudentIds = leads
+        .map((l) => l.student_id)
+        .filter(Boolean);
+
+      if (completedStudentIds.length > 0) {
+        const { data: quizResults } = await supabase
+          .from('quiz_results')
+          .select('student_id, correct_answers, total_questions, percentage')
+          .in('student_id', completedStudentIds)
+          .order('created_at', { ascending: false });
+
+        if (quizResults && quizResults.length > 0) {
+          const resultMap = new Map<string, { correct: number; total: number; pct: number }>();
+          for (const r of quizResults) {
+            if (!resultMap.has(r.student_id)) {
+              resultMap.set(r.student_id, {
+                correct: r.correct_answers ?? 0,
+                total: r.total_questions ?? 0,
+                pct: r.percentage ?? 0,
+              });
+            }
+          }
+
+          for (const lead of leads) {
+            const res = resultMap.get(lead.student_id);
+            if (res) {
+              (lead as any).quiz_correct_answers = res.correct;
+              (lead as any).quiz_total_questions = res.total;
+              (lead as any).quiz_percentage = res.pct;
+            }
           }
         }
       }
+    } catch (enrichErr) {
+      console.warn('[listLeads] Quiz result enrichment note:', enrichErr);
     }
-  } catch (enrichErr) {
-    console.warn('[listLeads] Quiz result enrichment note:', enrichErr);
-  }
 
-  return {
-    data: leads,
-    total: count || 0,
-    page,
-    pageSize,
-    totalPages: Math.ceil((count || 0) / pageSize),
-  };
+    return {
+      data: leads,
+      total: count !== null && count !== undefined && count > 0 ? count : leads.length,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil((count || leads.length) / pageSize)),
+    };
+  } catch (err) {
+    console.warn('[listLeads] Supabase query failed, falling back to local leads:', err);
+    let list = getLocalLeads();
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      list = list.filter((l) => {
+        const s = l.student as any;
+        return (
+          s?.full_name?.toLowerCase().includes(q) ||
+          s?.email?.toLowerCase().includes(q) ||
+          s?.college?.toLowerCase().includes(q) ||
+          s?.mobile?.includes(q)
+        );
+      });
+    }
+    return {
+      data: list,
+      total: list.length,
+      page: 1,
+      pageSize,
+      totalPages: 1,
+    };
+  }
 }
 
 // ── Admin: Update lead status and notes ───────────────────────

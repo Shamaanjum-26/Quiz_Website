@@ -393,71 +393,106 @@ export async function getStudentByEmail(email: string): Promise<Student | null> 
 export async function listStudents(
   filters: StudentFilters,
   page = 1,
-  pageSize = 20
+  pageSize = 200
 ): Promise<PaginatedResult<Student & {
   lead?: { lead_score: number; lead_status: string; has_registered_bootcamp?: boolean; last_activity_at?: string };
   quiz_results?: { percentage: number; calculated_at: string }[];
   quiz_attempts?: { id: string }[];
 }>> {
   if (!isSupabaseConfigured) {
-    const all = getLocalStudents();
+    let all = getLocalStudents();
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      all = all.filter(
+        (s) =>
+          s.full_name?.toLowerCase().includes(q) ||
+          s.email?.toLowerCase().includes(q) ||
+          s.college?.toLowerCase().includes(q) ||
+          s.mobile?.includes(q)
+      );
+    }
     return {
       data: all as any,
       total: all.length,
       page: 1,
-      pageSize: 200,
-      totalPages: 1,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(all.length / pageSize)),
     };
   }
 
-  let query = supabase
-    .from('students')
-    .select(
-      `*, 
-      preferred_domain:domains(name, slug),
-      lead:leads(lead_score, lead_status, has_registered_bootcamp, last_activity_at),
-      quiz_results(percentage, calculated_at),
-      quiz_attempts(id)`,
-      { count: 'exact' }
-    );
+  try {
+    let query = supabase
+      .from('students')
+      .select('*, preferred_domain:domains(name, slug)', { count: 'exact' });
 
-  if (filters.search) {
-    query = query.or(
-      `full_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,college.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`
-    );
+    if (filters.search) {
+      query = query.or(
+        `full_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,college.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`
+      );
+    }
+    if (filters.domain_id) query = query.eq('preferred_domain_id', filters.domain_id);
+    if (filters.state) query = query.eq('state', filters.state);
+    if (filters.academic_year) query = query.eq('academic_year', filters.academic_year);
+    if (filters.utm_source) query = query.eq('utm_source', filters.utm_source);
+
+    const sortBy = filters.sort_by || 'created_at';
+    const sortOrder = filters.sort_order === 'asc' ? false : true;
+    query = query.order(sortBy, { ascending: !sortOrder });
+
+    const from = (page - 1) * pageSize;
+    query = query.range(from, from + pageSize - 1);
+
+    const { data: studentsData, error, count } = await query;
+    if (error) throw error;
+
+    let studentList = (studentsData || []) as any[];
+
+    // If database returned active records, remove stale local deletion flag
+    if (studentList.length > 0) {
+      try {
+        localStorage.removeItem('hadescore_all_students_deleted');
+      } catch {}
+    }
+
+    // Enrich with leads data safely
+    if (studentList.length > 0) {
+      try {
+        const studentIds = studentList.map((s) => s.id).filter(Boolean);
+        const { data: leadsData } = await supabase
+          .from('leads')
+          .select('student_id, lead_score, lead_status, has_registered_bootcamp, last_activity_at')
+          .in('student_id', studentIds);
+
+        if (leadsData && leadsData.length > 0) {
+          const leadMap = new Map(leadsData.map((l) => [l.student_id, l]));
+          studentList = studentList.map((s) => ({
+            ...s,
+            lead: leadMap.get(s.id) || undefined,
+          }));
+        }
+      } catch (leadErr) {
+        console.warn('[listStudents] Leads enrichment note:', leadErr);
+      }
+    }
+
+    return {
+      data: studentList,
+      total: count !== null && count !== undefined ? count : studentList.length,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil((count || studentList.length) / pageSize)),
+    };
+  } catch (err) {
+    console.warn('[listStudents] Supabase query failed, using local fallback:', err);
+    const local = getLocalStudents();
+    return {
+      data: local as any,
+      total: local.length,
+      page: 1,
+      pageSize,
+      totalPages: 1,
+    };
   }
-  if (filters.domain_id) query = query.eq('preferred_domain_id', filters.domain_id);
-  if (filters.state) query = query.eq('state', filters.state);
-  if (filters.academic_year) query = query.eq('academic_year', filters.academic_year);
-  if (filters.utm_source) query = query.eq('utm_source', filters.utm_source);
-
-  const sortBy = filters.sort_by || 'created_at';
-  const sortOrder = filters.sort_order === 'asc' ? false : true;
-  query = query.order(sortBy, { ascending: !sortOrder });
-
-  const from = (page - 1) * pageSize;
-  query = query.range(from, from + pageSize - 1);
-
-  const { data, error, count } = await query;
-  if (error) throw error;
-
-  const deletedIds = getDeletedStudentIds();
-  const allDeleted = localStorage.getItem('hadescore_all_students_deleted') === 'true';
-
-  let rawList = (data || []) as (Student & { lead?: { lead_score: number; lead_status: string } })[];
-  if (allDeleted) {
-    rawList = [];
-  } else if (deletedIds.size > 0) {
-    rawList = rawList.filter((s) => !deletedIds.has(s.id) && !deletedIds.has(s.email?.toLowerCase()));
-  }
-
-  return {
-    data: rawList,
-    total: allDeleted ? 0 : rawList.length,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(rawList.length / pageSize)),
-  };
 }
 
 // ── Admin: Export students CSV ────────────────────────────────
