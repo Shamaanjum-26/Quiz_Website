@@ -179,13 +179,16 @@ export async function startQuizAttempt(
 
   const expiresAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
 
+  const qConfig = getStoredQuizConfig();
+  const totalQ = qConfig.questions_per_quiz || 10;
+
   const { data, error } = await supabase
     .from('quiz_attempts')
     .insert({
       student_id: studentId,
       domain_id: domainId,
       status: 'started',
-      total_questions: 10,
+      total_questions: totalQ,
       started_at: new Date().toISOString(),
       expires_at: expiresAt,
     })

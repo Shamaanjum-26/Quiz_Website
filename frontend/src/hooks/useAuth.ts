@@ -95,25 +95,53 @@ export function useAuthState(): AuthContextType {
   }
 
   async function signIn(email: string, password: string) {
-    // 1. Support direct admin login
-    if (
-      email.toLowerCase().includes('admin') ||
-      password === 'admin123' ||
-      password === 'admin' ||
-      email === 'admin@hadescore.com' ||
-      email === 'admin@skillprobe.in'
-    ) {
+    const cleanEmail = email?.trim().toLowerCase() || '';
+    const cleanPass = password?.trim() || '';
+
+    // Check if custom admin password is saved in localStorage
+    const customAdminPass = localStorage.getItem('skillprobe_custom_admin_password');
+
+    const isMasterEmail = [
+      'admin@hadescore.com',
+      'admin@skillprobe.in',
+      'admin@skillprobe.com',
+      'admin@gmail.com',
+      'admin'
+    ].includes(cleanEmail);
+
+    const isMasterPass =
+      cleanPass === 'admin123' ||
+      cleanPass === 'admin@123' ||
+      cleanPass === 'admin' ||
+      (customAdminPass && cleanPass === customAdminPass);
+
+    if (isMasterEmail && isMasterPass) {
       localStorage.setItem('skillprobe_admin_session', 'true');
-      setUser({ id: 'admin-master', email: email || 'admin@hadescore.com' } as unknown as User);
+      setUser({ id: 'admin-master', email: cleanEmail || 'admin@hadescore.com' } as unknown as User);
       setIsAdmin(true);
       return;
     }
 
-    // 2. Otherwise use Supabase Auth
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    localStorage.setItem('skillprobe_admin_session', 'true');
-    setIsAdmin(true);
+    // 2. Otherwise attempt Supabase Auth if configured
+    if (isSupabaseConfigured) {
+      try {
+        const { data: authData, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: cleanPass,
+        });
+        if (!error && authData?.user) {
+          localStorage.setItem('skillprobe_admin_session', 'true');
+          setUser(authData.user);
+          setIsAdmin(true);
+          return;
+        }
+      } catch (err) {
+        // Fall through
+      }
+    }
+
+    // If credentials did not match valid master or Supabase auth, throw error
+    throw new Error('Invalid email or password. Please check your admin credentials.');
   }
 
   async function signOut() {

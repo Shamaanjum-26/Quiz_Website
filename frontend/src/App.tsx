@@ -51,8 +51,10 @@ function App() {
     <AuthContext.Provider value={authState}>
       <BrowserRouter>
         <Routes>
-          {/* Admin Login */}
+          {/* Admin Login & Aliases */}
           <Route path="/admin/login" element={<AdminLoginPage />} />
+          <Route path="/damin" element={<Navigate to="/admin" replace />} />
+          <Route path="/damin/*" element={<Navigate to="/admin" replace />} />
 
           {/* Student Portal routes */}
           <Route element={<PublicLayout />}>

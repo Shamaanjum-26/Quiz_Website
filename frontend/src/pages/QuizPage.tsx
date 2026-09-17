@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import {
   Clock, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle,
   Loader2, Send, List, X, Video, VideoOff, Mic, MicOff,
   ShieldCheck, AlertTriangle, GripHorizontal, ShieldAlert, Lock,
+  LayoutGrid,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -732,251 +733,265 @@ export default function QuizPage() {
         </div>
       )}
 
-      {/* ── Outer Content Wrapper: completely hidden when out of focus or during screenshot attempt ── */}
+      {/* ── MAIN QUIZ CONTAINER ──────────────────────────────── */}
       <div className={cn(
-        "flex flex-col min-h-screen transition-opacity duration-150",
+        "min-h-screen bg-slate-50 flex flex-col justify-between selection:bg-indigo-500 selection:text-white transition-opacity duration-150 relative overflow-hidden",
         (!isWindowFocused || screenshotAttempted) ? "opacity-0 pointer-events-none select-none invisible h-0 overflow-hidden" : "opacity-100 visible"
       )}>
+        {/* Ambient subtle backdrop glows */}
+        <div className="absolute top-0 right-1/4 w-96 h-96 bg-indigo-100/30 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-10 left-10 w-96 h-96 bg-violet-100/25 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Subtle tech background grid pattern */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none opacity-70" />
-      <div className="absolute top-0 right-1/4 w-96 h-96 bg-indigo-100/30 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-10 left-10 w-96 h-96 bg-violet-100/25 rounded-full blur-3xl pointer-events-none" />
-
-      {/* Top Header - Glassmorphism Sticky */}
-      <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-30 shadow-2xs transition-all">
-        <div className="w-full max-w-7xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Domain branding & question indicator */}
-          <div className="flex items-center gap-3.5">
-            <div className="relative group">
-              <img
-                src={domainIcon}
-                alt={domain?.name || 'Domain'}
-                className="w-10 h-10 object-contain rounded-2xl p-1.5 bg-white border border-slate-200/80 shadow-xs shrink-0 transition-transform group-hover:scale-105"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = '/domains/default.svg';
-                }}
-              />
-            </div>
-            <div>
-              <h1 className="font-display font-extrabold text-slate-900 text-sm sm:text-base leading-tight tracking-tight truncate max-w-[200px] sm:max-w-none">
-                {domain?.name || 'Skill Assessment'}
-              </h1>
-              <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
-                <span>Question {currentIndex + 1} of {questions.length || 30}</span>
-                <span className="text-slate-300">•</span>
-                <span>30 Mins Total</span>
+        {/* ── Sticky Modern Header ───────────────────────────── */}
+        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl border-b border-slate-200/80 shadow-xs">
+          <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-4">
+            {/* Domain info */}
+            <div className="flex items-center gap-3 min-w-0">
+              <Link to="/home" className="flex items-center gap-2 group shrink-0">
+                <img
+                  src="/logo.png"
+                  alt="Hadescore"
+                  className="w-10 h-10 object-contain rounded-2xl p-1.5 bg-white border border-slate-200/80 shadow-xs shrink-0 transition-transform group-hover:scale-105"
+                />
+              </Link>
+              <div className="min-w-0">
+                <h1 className="font-display font-bold text-slate-900 text-sm sm:text-base truncate flex items-center gap-1.5">
+                  <span>{domain?.name || 'Technical Assessment'}</span>
+                </h1>
+                <p className="text-xs text-slate-500 font-medium">
+                  Question <span className="font-semibold text-slate-900">{currentIndex + 1}</span> of <span className="font-semibold text-slate-900">{questions.length}</span>
+                  <span className="text-slate-300 mx-1.5">•</span>
+                  <span className="text-emerald-700 font-semibold">{answeredCount} answered</span>
+                </p>
               </div>
             </div>
-          </div>
 
-          {/* Timer & Navigation toggle */}
-          <div className="flex items-center gap-3">
-            <div className={cn(
-              'flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-mono font-bold transition-all shadow-2xs',
-              isTimeLow
-                ? 'bg-rose-50 text-rose-600 border border-rose-200 animate-pulse shadow-rose-500/10'
-                : 'bg-slate-100 text-slate-700 border border-slate-200/80'
-            )}>
-              <Clock className={cn('w-3.5 h-3.5', isTimeLow ? 'text-rose-500' : 'text-indigo-600')} />
-              <span>{formatTime(timeLeft)}</span>
-            </div>
+            {/* Timer & Nav Toggle & Finish Button */}
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              {/* Timer Pill */}
+              <div
+                className={cn(
+                  'flex items-center gap-2 px-3.5 py-1.5 sm:py-2 rounded-2xl font-mono text-xs sm:text-sm font-bold tracking-tight shadow-xs transition-colors',
+                  timeLeft < 300
+                    ? 'bg-rose-50 text-rose-600 border border-rose-200 animate-pulse shadow-rose-500/10'
+                    : 'bg-slate-100 text-slate-700 border border-slate-200/80'
+                )}
+                role="timer"
+                aria-label={`Time remaining: ${formatTime(timeLeft)}`}
+              >
+                <Clock className="w-4 h-4 text-slate-500 shrink-0" />
+                <span>{formatTime(timeLeft)}</span>
+              </div>
 
-            <button
-              type="button"
-              onClick={() => setShowNav(!showNav)}
-              className={cn(
-                'p-2 sm:px-3.5 sm:py-2 rounded-2xl border transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold shadow-2xs',
-                showNav
-                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-indigo-600/20'
-                  : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
-              )}
-              title={showNav ? 'Hide Question Numbers' : 'Show Question Numbers'}
-              aria-label="Toggle Question Numbers"
-            >
-              <List className="w-4 h-4" />
-              <span className="hidden sm:inline">
+              {/* Toggle Question Navigator Drawer button */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowNav(!showNav)}
+                className="hidden md:inline-flex items-center gap-1.5 rounded-2xl text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer shadow-xs"
+              >
+                <LayoutGrid className="w-3.5 h-3.5 text-slate-500" />
                 {showNav ? 'Hide Questions' : 'Questions'}
-              </span>
-            </button>
+              </Button>
+
+              {/* Finish Quiz Button */}
+              <Button
+                type="button"
+                onClick={() => handleSubmit(false)}
+                disabled={submitting}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-4 sm:px-5 text-xs sm:text-sm font-semibold shadow-sm shadow-indigo-600/20 hover:shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                id="finish-assessment-header-btn"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Submitting...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Submit</span>
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
-        </div>
 
-        {/* Dynamic Progress Bar */}
-        <div className="w-full bg-slate-100 h-1.5 relative overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 transition-all duration-300 ease-out shadow-xs"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </header>
-
-      {/* Fullscreen Compliance Alert Banner if user leaves fullscreen */}
-      {!isFullscreen && (
-        <div className="bg-amber-50/95 backdrop-blur-xs border-b border-amber-200/80 px-4 sm:px-8 py-2.5 flex items-center justify-between text-xs text-amber-900 z-20 shadow-2xs">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
-            <span><strong>Proctoring Notice:</strong> Full-screen mode is required during the examination.</span>
+          {/* Smooth Progress Bar */}
+          <div className="w-full bg-slate-100 h-1.5 relative overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 transition-all duration-300 ease-out"
+              style={{ width: `${progress}%` }}
+              role="progressbar"
+              aria-valuenow={progress}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(() => {});
-              }
-            }}
-            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-xl transition-colors cursor-pointer shadow-xs"
-          >
-            Re-enter Full Screen
-          </button>
-        </div>
-      )}
+        </header>
 
-      {/* Main Quiz Area - Balanced Centered Container */}
-      <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex-1 flex flex-col justify-center relative z-10">
-        <div className={cn('grid gap-8 transition-all duration-300 items-start', showNav ? 'grid-cols-1 lg:grid-cols-4' : 'grid-cols-1')}>
-          {/* Main quiz question card */}
-          <div className={cn(showNav ? 'lg:col-span-3' : 'w-full max-w-4xl mx-auto')}>
-            {currentQuestion ? (
-              <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/40 p-6 sm:p-10 w-full relative overflow-hidden transition-all duration-300">
-                {/* Decorative subtle ambient card glow */}
-                <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-bl from-indigo-50/70 via-transparent to-transparent pointer-events-none rounded-tr-3xl" />
+        {/* ── Assessment Body ──────────────────────────────────── */}
+        <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex-1 flex flex-col justify-center relative z-10">
+          <div className="flex gap-8 items-start">
+            {/* Center: Main Question Box */}
+            <div className="flex-1 w-full min-w-0">
+              {currentQ ? (
+                <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/40 p-6 sm:p-10 w-full relative overflow-hidden transition-all duration-300">
+                  {/* Subtle top decorative corner accent */}
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-indigo-500/5 to-transparent rounded-bl-full pointer-events-none" />
 
-                {/* Dynamic Security Anti-Capture & Anti-Leak Watermark Pattern */}
-                <div className="absolute inset-0 pointer-events-none select-none overflow-hidden opacity-[0.035] flex flex-wrap items-center justify-center gap-14 rotate-[-15deg] text-slate-950 font-mono text-[11px] font-black uppercase tracking-widest z-0">
-                  {Array.from({ length: 16 }).map((_, i) => (
-                    <span key={i} className="whitespace-nowrap">
-                      CONFIDENTIAL ASSESSMENT • {studentId ? `STUDENT-${studentId.slice(-6)}` : 'PROCTORED'} • NO SCREENSHOTS
-                    </span>
-                  ))}
-                </div>
+                  {/* Question Header & Badges */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-5 border-b border-slate-100 relative z-10">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex items-center justify-center w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100/60 text-indigo-700 font-extrabold text-sm border border-indigo-100 shadow-2xs shrink-0">
+                        {currentIndex + 1}
+                      </span>
+                      <div>
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Question {currentIndex + 1} of {questions.length}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-700">
+                          {currentQ.tier_label || (currentQ.difficulty ? currentQ.difficulty.toUpperCase() : 'General')}
+                        </span>
+                      </div>
+                    </div>
 
-                {/* Question header row */}
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-5 border-b border-slate-100 relative z-10">
-                  <div className="flex items-center gap-3.5">
-                    <span className="flex items-center justify-center w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100/60 text-indigo-700 font-extrabold text-sm border border-indigo-100 shadow-2xs shrink-0">
-                      {String(currentIndex + 1).padStart(2, '0')}
-                    </span>
-                    <div>
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                        Question {currentIndex + 1} of {questions.length || 30}
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200/70">
+                        {currentQ.marks || 1} mark{(currentQ.marks || 1) > 1 ? 's' : ''}
                       </span>
                     </div>
                   </div>
-                  <span className="text-xs font-mono font-semibold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80 shadow-2xs">
-                    {currentQuestion.marks || 1} mark
-                  </span>
-                </div>
 
-                {/* Question text */}
-                <h2
-                  key={currentQuestion.id}
-                  className="text-slate-900 text-lg sm:text-2xl font-semibold leading-relaxed tracking-tight mb-8 relative z-10 animate-in fade-in slide-in-from-bottom-2 duration-200"
-                >
-                  {sanitizeQuestionText(currentQuestion.question_text)}
-                </h2>
-
-                {/* Options list */}
-                <div className="space-y-3.5 relative z-10" role="radiogroup" aria-label="Answer options">
-                  {(currentQuestion.options || []).map((option, optIdx) => {
-                    const isSelected = answers[currentQuestion.id] === option.id;
-                    const letter = String.fromCharCode(65 + optIdx);
-                    return (
-                      <button
-                        key={option.id}
-                        onClick={() => quiz.selectAnswer(currentQuestion.id, option.id)}
-                        role="radio"
-                        aria-checked={isSelected}
-                        className={cn(
-                          'w-full text-left p-4 sm:p-5 rounded-2xl border-2 transition-all duration-200 flex items-center gap-4 cursor-pointer group',
-                          isSelected
-                            ? 'bg-indigo-50/70 border-indigo-600 ring-4 ring-indigo-500/10 shadow-md shadow-indigo-500/10'
-                            : 'bg-white border-slate-200/80 hover:border-indigo-300 hover:bg-indigo-50/20 hover:shadow-xs text-slate-700'
-                        )}
-                      >
-                        {/* Option letter badge */}
-                        <div className={cn(
-                          'flex-shrink-0 w-9 h-9 rounded-xl border-2 flex items-center justify-center font-bold text-sm transition-all duration-200',
-                          isSelected
-                            ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 scale-105'
-                            : 'border-slate-200 bg-slate-50 text-slate-600 group-hover:border-indigo-300 group-hover:text-indigo-600 group-hover:bg-white'
-                        )}>
-                          {letter}
-                        </div>
-
-                        {/* Option text */}
-                        <span className={cn(
-                          'flex-1 text-sm sm:text-base leading-relaxed',
-                          isSelected ? 'text-indigo-950 font-semibold' : 'text-slate-700 font-normal'
-                        )}>
-                          {option.option_text}
-                        </span>
-
-                        {/* Selected Indicator */}
-                        <div className={cn(
-                          'w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors',
-                          isSelected
-                            ? 'bg-indigo-600 text-white shadow-2xs'
-                            : 'border-2 border-slate-300 group-hover:border-indigo-300'
-                        )}>
-                          {isSelected && <CheckCircle2 className="w-4 h-4 text-white" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Navigation buttons */}
-                <div className="flex items-center justify-between mt-10 pt-6 border-t border-slate-100 gap-3 relative z-10">
-                  <Button
-                    variant="outline"
-                    onClick={quiz.goPrev}
-                    disabled={quiz.isFirst}
-                    className="gap-2 rounded-2xl border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 px-5 shadow-2xs cursor-pointer"
+                  {/* Question Text */}
+                  <h2
+                    className="text-slate-900 text-lg sm:text-2xl font-semibold leading-relaxed tracking-tight mb-8 relative z-10 animate-in fade-in slide-in-from-bottom-2 duration-200"
+                    key={`q-text-${currentQ.id}`}
                   >
-                    <ChevronLeft className="w-4 h-4" />
-                    Previous
-                  </Button>
+                    {currentQ.question_text}
+                  </h2>
 
-                  <div className="hidden sm:flex items-center gap-2 text-xs font-semibold text-slate-600 bg-slate-50 border border-slate-200/70 px-4 py-1.5 rounded-full shadow-2xs">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <span>{quiz.answeredCount}/{questions.length} answered</span>
+                  {/* Options List */}
+                  <div className="space-y-3.5 relative z-10" role="radiogroup" aria-label="Answer options">
+                    {currentQ.options && currentQ.options.length > 0 ? (
+                      currentQ.options.map((opt, optIdx) => {
+                        const isSelected = selectedOptionId === opt.id;
+                        const optionLetters = ['A', 'B', 'C', 'D', 'E'];
+                        const letter = optionLetters[optIdx] || String(optIdx + 1);
+
+                        function handleOptionSelect(id: any, id1: any): void {
+                          throw new Error('Function not implemented.');
+                        }
+
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => handleOptionSelect(currentQ.id, opt.id)}
+                            className={cn(
+                              'w-full text-left p-4 sm:p-5 rounded-2xl border-2 transition-all flex items-center gap-4 group cursor-pointer relative overflow-hidden',
+                              isSelected
+                                ? 'bg-indigo-50/70 border-indigo-600 ring-4 ring-indigo-500/10 shadow-md shadow-indigo-500/10'
+                                : 'bg-slate-50/60 hover:bg-slate-100/80 border-slate-200/80 hover:border-slate-300'
+                            )}
+                            role="radio"
+                            aria-checked={isSelected}
+                            id={`option-${currentQ.id}-${opt.id}`}
+                          >
+                            <span
+                              className={cn(
+                                'flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs shrink-0 transition-transform duration-200',
+                                isSelected
+                                  ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 scale-105'
+                                  : 'border border-slate-300 bg-white text-slate-600 group-hover:border-slate-400 group-hover:scale-105'
+                              )}
+                            >
+                              {letter}
+                            </span>
+                            <span
+                              className={cn(
+                                'text-sm sm:text-base font-medium flex-1 leading-snug',
+                                isSelected ? 'text-indigo-950 font-semibold' : 'text-slate-700'
+                              )}
+                            >
+                              {opt.option_text}
+                            </span>
+                            {isSelected && (
+                              <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0 animate-in zoom-in duration-150" />
+                            )}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="p-6 text-center text-slate-400 text-sm">
+                        No options loaded for this question.
+                      </div>
+                    )}
                   </div>
 
-                  {quiz.isLast ? (
+                  {/* Navigation Buttons (Bottom) */}
+                  <div className="flex items-center justify-between mt-10 pt-6 border-t border-slate-100 gap-3 relative z-10">
                     <Button
-                      onClick={() => setShowConfirm(true)}
-                      className="gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-2xl px-6 shadow-md shadow-emerald-600/20 cursor-pointer transition-all hover:scale-[1.02]"
-                      id="submit-quiz-btn"
+                      type="button"
+                      variant="outline"
+                      onClick={() => quiz.previousQuestion()}
+                      disabled={currentIndex === 0}
+                      className="rounded-2xl px-5 border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                      id="prev-question-btn"
                     >
-                      <Send className="w-4 h-4" />
-                      Submit Quiz
+                      <ChevronLeft className="w-4 h-4 mr-1" />
+                      Previous
                     </Button>
-                  ) : (
-                    <Button
-                      onClick={quiz.goNext}
-                      className="gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold rounded-2xl px-6 shadow-md shadow-indigo-600/20 cursor-pointer transition-all hover:scale-[1.02]"
-                    >
-                      Next
-                      <ChevronRight className="w-4 h-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm">
-                <p className="text-slate-400">No questions available.</p>
-              </div>
-            )}
-          </div>
 
-          {/* Question Navigator Drawer */}
-          {showNav && (
-            <div className="lg:col-span-1 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/40 p-5 sticky top-24">
+                    <div className="flex items-center gap-2">
+                      {isLastQuestion ? (
+                        <Button
+                          type="button"
+                          onClick={() => handleQuizSubmit(false)}
+                          disabled={submitting}
+                          className="rounded-2xl px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold shadow-md shadow-emerald-600/20 hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                          id="submit-quiz-final-btn"
+                        >
+                          {submitting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Submitting...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-4 h-4" />
+                              Submit Test
+                            </>
+                          )}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          onClick={() => quiz.nextQuestion()}
+                          className="rounded-2xl px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md shadow-indigo-600/20 hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                          id="next-question-btn"
+                        >
+                          Next
+                          <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center">
+                  <p className="text-slate-500">No question selected.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Right: Modern Dynamic Question Navigator Sidebar (Collapsible) */}
+            {showNav && (
+              <aside className="w-72 shrink-0 hidden md:block bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/30 p-5 animate-in fade-in slide-in-from-right-4 duration-200">
                 <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-600" />
+                    <LayoutGrid className="w-4 h-4 text-indigo-600" />
                     <h3 className="font-bold text-slate-900 text-sm">Questions ({questions.length})</h3>
                   </div>
                   <button
@@ -989,137 +1004,50 @@ export default function QuizPage() {
                   </button>
                 </div>
 
-                <div className="space-y-4">
-                  {/* Section 1: Easy (1 - 10) */}
-                  <div>
-                    <div className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider mb-2 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Easy</span>
-                      <span className="text-[10px] font-medium text-slate-400">1 - 10</span>
-                    </div>
-                    <div className="grid grid-cols-5 gap-1.5">
-                      {questions.slice(0, 10).map((q, i) => {
-                        const isAnswered = !!answers[q.id];
-                        const isCurrent = i === currentIndex;
-                        return (
-                          <button
-                            key={q.id}
-                            onClick={() => quiz.goToQuestion(i)}
-                            className={cn(
-                              'w-full aspect-square rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center',
-                              isCurrent
-                                ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30 scale-105'
-                                : isAnswered
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200/80'
-                                : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/80'
-                            )}
-                            title={`Question ${i + 1}${isAnswered ? ' (answered)' : ''}`}
-                          >
-                            {i + 1}
-                          </button>
-                        );
-                      })}
-                    </div>
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-5 gap-2">
+                    {questions.map((q, i) => {
+                      const isAnswered = !!answers[q.id];
+                      const isCurrent = i === currentIndex;
+                      return (
+                        <button
+                          key={q.id}
+                          onClick={() => quiz.goToQuestion(i)}
+                          className={cn(
+                            'w-full aspect-square rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center',
+                            isCurrent
+                              ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30 scale-105'
+                              : isAnswered
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200/80'
+                              : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/80'
+                          )}
+                          title={`Question ${i + 1}${isAnswered ? ' (answered)' : ''}`}
+                        >
+                          {i + 1}
+                        </button>
+                      );
+                    })}
                   </div>
-
-                  {/* Section 2: Medium (11 - 20) */}
-                  {questions.length > 10 && (
-                    <div>
-                      <div className="text-[11px] font-bold text-amber-700 uppercase tracking-wider mb-2 flex items-center justify-between">
-                        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" /> Medium</span>
-                        <span className="text-[10px] font-medium text-slate-400">11 - 20</span>
-                      </div>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {questions.slice(10, 20).map((q, i) => {
-                          const idx = 10 + i;
-                          const isAnswered = !!answers[q.id];
-                          const isCurrent = idx === currentIndex;
-                          return (
-                            <button
-                              key={q.id}
-                              onClick={() => quiz.goToQuestion(idx)}
-                              className={cn(
-                                'w-full aspect-square rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center',
-                                isCurrent
-                                  ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30 scale-105'
-                                  : isAnswered
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200/80'
-                                  : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/80'
-                              )}
-                              title={`Question ${idx + 1}${isAnswered ? ' (answered)' : ''}`}
-                            >
-                              {idx + 1}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Section 3: Advanced (21 - 30) */}
-                  {questions.length > 20 && (
-                    <div>
-                      <div className="text-[11px] font-bold text-purple-700 uppercase tracking-wider mb-2 flex items-center justify-between">
-                        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-purple-500" /> Advanced</span>
-                        <span className="text-[10px] font-medium text-slate-400">21 - 30</span>
-                      </div>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {questions.slice(20, 30).map((q, i) => {
-                          const idx = 20 + i;
-                          const isAnswered = !!answers[q.id];
-                          const isCurrent = idx === currentIndex;
-                          return (
-                            <button
-                              key={q.id}
-                              onClick={() => quiz.goToQuestion(idx)}
-                              className={cn(
-                                'w-full aspect-square rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center',
-                                isCurrent
-                                  ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30 scale-105'
-                                  : isAnswered
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200/80'
-                                  : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/80'
-                              )}
-                              title={`Question ${idx + 1}${isAnswered ? ' (answered)' : ''}`}
-                            >
-                              {idx + 1}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
                 </div>
 
-                <div className="mt-5 pt-4 border-t border-slate-100 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-600">
+                <div className="mt-5 pt-4 border-t border-slate-100 space-y-2 text-xs text-slate-600">
+                  <div className="flex items-center justify-between">
                     <span className="flex items-center gap-2">
                       <span className="w-3 h-3 rounded-md bg-emerald-100 border border-emerald-300" />
                       Answered
                     </span>
-                    <span className="font-bold font-mono">{quiz.answeredCount}</span>
+                    <span className="font-bold font-mono">{answeredCount}</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-slate-600">
+                  <div className="flex items-center justify-between">
                     <span className="flex items-center gap-2">
                       <span className="w-3 h-3 rounded-md bg-slate-100 border border-slate-200" />
                       Not answered
                     </span>
-                    <span className="font-bold font-mono">{questions.length - quiz.answeredCount}</span>
+                    <span className="font-bold font-mono">{questions.length - answeredCount}</span>
                   </div>
                 </div>
-
-                {quiz.answeredCount > 0 && (
-                  <Button
-                    onClick={() => setShowConfirm(true)}
-                    size="sm"
-                    className="w-full mt-4 gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl shadow-sm cursor-pointer"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    Submit Quiz
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
+              </aside>
+            )}
         </div>
       </main>
 

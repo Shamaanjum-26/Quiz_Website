@@ -356,15 +356,20 @@ async function startQuizAttempt(studentId, domainId) {
     return selected;
   };
 
-  // 4. Exact requested difficulty sequence:
-  // Questions 1 - 10: Easy
-  // Questions 11 - 20: Medium
-  // Questions 21 - 30: Advanced (Hard)
-  const selectedEasy = selectTierQuestions(unseenEasy, easyPool, 10);
-  const selectedMedium = selectTierQuestions(unseenMedium, mediumPool, 10);
-  const selectedHard = selectTierQuestions(unseenHard, hardPool, 10);
+  // 4. Dynamic difficulty sequence based on configured questions_per_quiz:
+  const targetTotal = config.questions_per_quiz || 10;
+  const easyCount = Math.max(1, Math.round(targetTotal * 0.34));
+  const medCount = Math.max(1, Math.round(targetTotal * 0.33));
+  const hardCount = Math.max(0, targetTotal - easyCount - medCount);
 
-  const selectedQuestions = [...selectedEasy, ...selectedMedium, ...selectedHard];
+  const selectedEasy = selectTierQuestions(unseenEasy, easyPool, easyCount);
+  const selectedMedium = selectTierQuestions(unseenMedium, mediumPool, medCount);
+  const selectedHard = selectTierQuestions(unseenHard, hardPool, hardCount);
+
+  let selectedQuestions = [...selectedEasy, ...selectedMedium, ...selectedHard];
+  if (selectedQuestions.length > targetTotal) {
+    selectedQuestions = selectedQuestions.slice(0, targetTotal);
+  }
   const selectedQuestionIds = selectedQuestions.map(q => q.id);
 
   // 5. Fetch options for selected questions
@@ -387,15 +392,15 @@ async function startQuizAttempt(studentId, domainId) {
   // Assemble sanitized questions in sequential difficulty order with shuffled options
   const sanitizedQuestions = selectedQuestions.map((q, idx) => {
     const qOpts = optionsMap[q.id] || [];
-    const tierNum = idx < 10 ? 1 : idx < 20 ? 2 : 3;
-    const tierLabel = idx < 10 ? 'Easy' : idx < 20 ? 'Medium' : 'Advanced';
+    const tierNum = idx < easyCount ? 1 : idx < (easyCount + medCount) ? 2 : 3;
+    const tierLabel = idx < easyCount ? 'Easy' : idx < (easyCount + medCount) ? 'Medium' : 'Advanced';
     return {
       id: q.id,
       question_number: idx + 1,
       tier_number: tierNum,
       tier_label: tierLabel,
       question_text: cleanQuestionText(q.question_text),
-      difficulty: q.difficulty,
+      difficulty: q.difficulty || (tierNum === 1 ? 'easy' : tierNum === 2 ? 'medium' : 'hard'),
       marks: q.marks || 1,
       topic: q.topic || 'General',
       options: shuffleArray(qOpts) // Shuffle options for this attempt
