@@ -400,7 +400,7 @@ export async function submitQuiz(
   // ── Automated WhatsApp Bootcamp Invitation ──
   // If candidate has not enrolled in bootcamp, automatically trigger WhatsApp invite!
   try {
-    fetch('http://localhost:5000/api/automation/whatsapp/trigger', {
+    fetch(`${BACKEND_URL}/api/automation/whatsapp/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, force: false }),
