@@ -1,35 +1,61 @@
 // Quiz Engine Service for SkillProbe
 // Handles Level 1 & Level 2 Deduplication, Randomization, Option Shuffling, Server-Side Scoring, and Quiz Configurations.
 
+const fs = require('fs');
+const path = require('path');
 const { supabaseFetch, SUPABASE_URL } = require('../lib/supabaseAdmin');
 const { generateDomainQuestionsWithGemini } = require('./geminiService');
 
-// In-memory default config fallback
+const CONFIG_FILE = path.join(__dirname, '../data/quizConfig.json');
+
+function loadLocalConfigFile() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      return data;
+    }
+  } catch (e) {
+    console.warn('[QuizEngine] Error reading local config file:', e.message);
+  }
+  return null;
+}
+
+function saveLocalConfigFile(config) {
+  try {
+    const dir = path.dirname(CONFIG_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[QuizEngine] Error saving local config file:', e.message);
+  }
+}
+
+// In-memory default config fallback (10 questions, 1 attempt, 15 minutes)
 let memoryConfig = {
   question_bank_size: 30,
-  questions_per_quiz: 30,
-  quiz_duration_minutes: 30,
-  max_attempts: 999,
+  questions_per_quiz: 10,
+  passing_questions_count: 5,
+  quiz_duration_minutes: 15,
+  max_attempts: 1,
   passing_percentage: 50,
   gemini_api_key: process.env.GEMINI_API_KEY || ''
 };
+
+// Initialize from file if exists
+const initialLoaded = loadLocalConfigFile();
+if (initialLoaded) {
+  memoryConfig = { ...memoryConfig, ...initialLoaded };
+}
 
 /**
  * Get Platform Quiz Configuration
  */
 async function getQuizConfig() {
-  try {
-    const configs = await supabaseFetch('quiz_configurations?select=*&limit=1');
-    if (Array.isArray(configs) && configs.length > 0) {
-      const dbConfig = configs[0];
-      return {
-        ...memoryConfig,
-        ...dbConfig,
-        gemini_api_key: dbConfig.gemini_api_key || memoryConfig.gemini_api_key || process.env.GEMINI_API_KEY || ''
-      };
-    }
-  } catch (err) {
-    console.warn('[QuizEngine] Note: quiz_configurations table not ready, using memory configuration:', err.message);
+  const fileConfig = loadLocalConfigFile();
+  if (fileConfig) {
+    memoryConfig = { ...memoryConfig, ...fileConfig };
   }
   return { ...memoryConfig };
 }
@@ -43,38 +69,9 @@ async function updateQuizConfig(newConfig) {
     process.env.GEMINI_API_KEY = newConfig.gemini_api_key;
   }
 
-  try {
-    const existing = await supabaseFetch('quiz_configurations?select=id&limit=1');
-    if (Array.isArray(existing) && existing.length > 0) {
-      const id = existing[0].id;
-      await supabaseFetch(`quiz_configurations?id=eq.${id}`, {
-        method: 'PATCH',
-        body: {
-          question_bank_size: memoryConfig.question_bank_size,
-          questions_per_quiz: memoryConfig.questions_per_quiz,
-          max_attempts: memoryConfig.max_attempts,
-          passing_percentage: memoryConfig.passing_percentage,
-          gemini_api_key: memoryConfig.gemini_api_key,
-          updated_at: new Date().toISOString()
-        }
-      });
-    } else {
-      await supabaseFetch('quiz_configurations', {
-        method: 'POST',
-        body: [{
-          question_bank_size: memoryConfig.question_bank_size,
-          questions_per_quiz: memoryConfig.questions_per_quiz,
-          max_attempts: memoryConfig.max_attempts,
-          passing_percentage: memoryConfig.passing_percentage,
-          gemini_api_key: memoryConfig.gemini_api_key
-        }]
-      });
-    }
-  } catch (err) {
-    console.warn('[QuizEngine] Note: unable to persist configuration to DB table:', err.message);
-  }
-
-  return memoryConfig;
+  // Persist locally for 100% reliable survival across restarts
+  saveLocalConfigFile(memoryConfig);
+  return { ...memoryConfig };
 }
 
 /**
@@ -254,9 +251,9 @@ function cleanQuestionText(text) {
  * - Shuffles options per question
  * - CRITICAL SECURITY: Strips `is_correct` before returning to client
  */
-async function startQuizAttempt(studentId, domainId) {
+async function startQuizAttempt(studentId, domainId, requestedTargetCount) {
   const config = await getQuizConfig();
-  const maxAttempts = config.max_attempts || 3;
+  const maxAttempts = config.max_attempts || 1;
   const hasGeminiKey = !!(config.gemini_api_key || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY);
 
   // UUID validation: ensure studentId is valid hex UUID for DB
@@ -369,8 +366,8 @@ async function startQuizAttempt(studentId, domainId) {
     return selected;
   };
 
-  // 4. Dynamic difficulty sequence based on configured questions_per_quiz:
-  const targetTotal = config.questions_per_quiz || 10;
+  // 4. Dynamic difficulty sequence based on requestedTargetCount or configured questions_per_quiz:
+  const targetTotal = Math.max(1, Number(requestedTargetCount) || config.questions_per_quiz || 10);
   const easyCount = Math.max(1, Math.round(targetTotal * 0.34));
   const medCount = Math.max(1, Math.round(targetTotal * 0.33));
   const hardCount = Math.max(0, targetTotal - easyCount - medCount);
@@ -380,6 +377,19 @@ async function startQuizAttempt(studentId, domainId) {
   const selectedHard = selectTierQuestions(unseenHard, hardPool, hardCount);
 
   let selectedQuestions = [...selectedEasy, ...selectedMedium, ...selectedHard];
+
+  // If pool didn't have enough questions for tiers, fill up to targetTotal from all available questions
+  if (selectedQuestions.length < targetTotal && Array.isArray(allQuestions)) {
+    const existingIds = new Set(selectedQuestions.map(q => q.id));
+    const leftovers = shuffleArray(allQuestions.filter(q => !existingIds.has(q.id)));
+    for (const rem of leftovers) {
+      if (selectedQuestions.length >= targetTotal) break;
+      selectedQuestions.push(rem);
+      existingIds.add(rem.id);
+    }
+  }
+
+  // Ensure exact targetTotal length
   if (selectedQuestions.length > targetTotal) {
     selectedQuestions = selectedQuestions.slice(0, targetTotal);
   }
@@ -420,8 +430,8 @@ async function startQuizAttempt(studentId, domainId) {
     };
   });
 
-  // 6. Create attempt record with 30-minute duration limit
-  const quizDurationMinutes = 30;
+  // 6. Create attempt record with dynamic timer duration
+  const quizDurationMinutes = config.quiz_duration_minutes || config.quiz_timer_minutes || 15;
   const expiresAt = new Date(Date.now() + quizDurationMinutes * 60 * 1000).toISOString();
   const attemptPayload = {
     student_id: validStudentId,

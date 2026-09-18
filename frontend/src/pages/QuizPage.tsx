@@ -522,7 +522,7 @@ export default function QuizPage() {
 
         if (isSupabaseConfigured) {
           try {
-            const attempt = await startQuizAttempt(studentId, domainData.id);
+            const attempt = await startQuizAttempt(studentId, domainData.id, targetQCount);
             newAttemptId = attempt.id;
             if (attempt.questions && attempt.questions.length > 0) {
               questions = attempt.questions;

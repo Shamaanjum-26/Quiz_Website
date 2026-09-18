@@ -132,14 +132,18 @@ const BACKEND_URL = getBackendUrl();
 // ── Start a quiz attempt (Backend Engine with Level 2 Deduplication) ───
 export async function startQuizAttempt(
   studentId: string,
-  domainId: string
+  domainId: string,
+  targetCount?: number
 ): Promise<QuizAttempt & { questions?: Question[] }> {
+  const qConfig = getStoredQuizConfig();
+  const totalQ = targetCount || qConfig.questions_per_quiz || 10;
+
   // 1. Try Hadescore Backend Quiz Engine (Randomized, unseen questions, shuffled options)
   try {
     const res = await fetch(`${BACKEND_URL}/api/quiz/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ studentId, domainId }),
+      body: JSON.stringify({ studentId, domainId, targetQuestionsCount: totalQ }),
     });
 
     if (res.ok) {
@@ -154,7 +158,7 @@ export async function startQuizAttempt(
           domain_id: domainId,
           quiz_id: undefined,
           status: 'started',
-          total_questions: data.totalQuestions || 10,
+          total_questions: data.totalQuestions || totalQ,
           started_at: data.startedAt || new Date().toISOString(),
           submitted_at: undefined,
           expires_at: data.expiresAt || new Date(Date.now() + 45 * 60 * 1000).toISOString(),
@@ -180,9 +184,6 @@ export async function startQuizAttempt(
   localStorage.setItem(localKey, String(attemptNumber));
 
   const expiresAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
-
-  const qConfig = getStoredQuizConfig();
-  const totalQ = qConfig.questions_per_quiz || 10;
 
   const { data, error } = await supabase
     .from('quiz_attempts')

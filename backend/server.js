@@ -118,10 +118,19 @@ const server = http.createServer(async (req, res) => {
         const maskedKey = config.gemini_api_key
           ? `••••••••••••${config.gemini_api_key.slice(-4)}`
           : '';
-        return sendJson(res, 200, { ...config, gemini_api_key_masked: maskedKey });
+        return sendJson(res, 200, {
+          ...config,
+          // Alias so frontend's fetchQuizConfig (reads quiz_timer_minutes) works
+          quiz_timer_minutes: config.quiz_timer_minutes || config.quiz_duration_minutes || 15,
+          gemini_api_key_masked: maskedKey
+        });
       }
       if (req.method === 'POST') {
         const body = await parseJsonBody(req);
+        // Normalize: frontend sends quiz_timer_minutes, backend uses quiz_duration_minutes
+        if (body.quiz_timer_minutes && !body.quiz_duration_minutes) {
+          body.quiz_duration_minutes = body.quiz_timer_minutes;
+        }
         const updated = await quizEngine.updateQuizConfig(body);
         return sendJson(res, 200, { success: true, config: updated });
       }
@@ -150,13 +159,13 @@ const server = http.createServer(async (req, res) => {
     // ── Start Quiz Attempt (Randomized, Shuffled, is_correct stripped)
     if (pathname === '/api/quiz/start' && req.method === 'POST') {
       const body = await parseJsonBody(req);
-      const { studentId, domainId } = body;
+      const { studentId, domainId, targetQuestionsCount } = body;
 
       if (!studentId || !domainId) {
         return sendJson(res, 400, { error: 'studentId and domainId are required' });
       }
 
-      const session = await quizEngine.startQuizAttempt(studentId, domainId);
+      const session = await quizEngine.startQuizAttempt(studentId, domainId, targetQuestionsCount);
       return sendJson(res, 200, { success: true, ...session });
     }
 
