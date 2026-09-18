@@ -564,6 +564,7 @@ export async function getQuizAttempts(page = 1, pageSize = 20) {
 
 // ── Admin: Gemini AI & Quiz Engine Configuration ───────────────
 export interface QuizEngineConfig {
+  quiz_duration_minutes: number;
   question_bank_size: number;
   questions_per_quiz: number;
   passing_questions_count: number;
@@ -583,6 +584,7 @@ export const DEFAULT_QUIZ_CONFIG: QuizEngineConfig = {
   passing_percentage: 50,
   max_attempts: 1, // 1 Attempt per candidate email ID
   quiz_timer_minutes: 15,
+  quiz_duration_minutes: 0
 };
 
 export function getStoredQuizConfig(): QuizEngineConfig {

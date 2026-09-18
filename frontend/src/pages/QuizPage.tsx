@@ -416,8 +416,11 @@ export default function QuizPage() {
     };
   }, [stopProctoring]);
 
-  // ── Camera/mic proctoring activation ──────────
+  // ── Camera/mic proctoring activation: only fires AFTER quiz finishes loading ──
   useEffect(() => {
+    // Do not start proctoring while quiz is still loading
+    if (loading) return;
+
     if (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream) {
       const stream = (window as any).__prewarmedProctorStream as MediaStream;
       (window as any).__prewarmedProctorStream = null;
@@ -432,9 +435,13 @@ export default function QuizPage() {
         videoRef.current.play().catch(() => {});
       }
     } else if (!cameraActive) {
-      requestProctoring();
+      // Small delay to ensure DOM video element is mounted before we attach stream
+      const timer = setTimeout(() => {
+        requestProctoring();
+      }, 400);
+      return () => clearTimeout(timer);
     }
-  }, [requestProctoring, cameraActive]);
+  }, [loading, requestProctoring, cameraActive]);
 
   useEffect(() => {
     if (mediaStream && videoRef.current) {
@@ -506,15 +513,19 @@ export default function QuizPage() {
 
         const quizConfig = getStoredQuizConfig();
         let targetQCount = quizConfig.questions_per_quiz || 10;
+        let targetTimerMinutes = quizConfig.quiz_timer_minutes || quizConfig.quiz_duration_minutes || 15;
         try {
           const latestConf = await fetchQuizConfig();
           if (latestConf && latestConf.questions_per_quiz) {
             targetQCount = latestConf.questions_per_quiz;
           }
+          // Read timer from backend config (admin Settings page value)
+          if (latestConf && (latestConf.quiz_timer_minutes || latestConf.quiz_duration_minutes)) {
+            targetTimerMinutes = latestConf.quiz_timer_minutes || latestConf.quiz_duration_minutes || targetTimerMinutes;
+          }
         } catch {}
 
-        const targetMinutes = quizConfig.quiz_timer_minutes || domainData.estimated_minutes || 15;
-        setTimeLeft(targetMinutes * 60);
+        setTimeLeft(targetTimerMinutes * 60);
 
         // Create attempt
         let newAttemptId = 'dev-attempt-' + Date.now();
@@ -629,8 +640,15 @@ export default function QuizPage() {
     setSubmitting(true);
     setShowConfirm(false);
 
-    // Stop proctoring immediately on submission: turn off camera, mic, and exit fullscreen
+    // Stop camera, mic, and fullscreen IMMEDIATELY on confirmation
     stopProctoring();
+    // Belt-and-suspenders: stop all active media tracks directly
+    try {
+      if (navigator.mediaDevices && (navigator as any).mediaDevices?.enumerateDevices) {
+        const tracks = mediaStreamRef.current?.getTracks?.() || [];
+        tracks.forEach((t: MediaStreamTrack) => { try { t.stop(); } catch {} });
+      }
+    } catch {}
 
     try {
       const totalSecs = domain?.estimated_minutes ? domain.estimated_minutes * 60 : 1800;
