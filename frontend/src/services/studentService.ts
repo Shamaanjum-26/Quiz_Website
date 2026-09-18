@@ -1,6 +1,7 @@
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { persistStudentId } from '@/lib/analytics';
 import { notifyDataChange } from '@/lib/sync';
+import { getBackendUrl } from '@/lib/apiConfig';
 import type { Student, StudentRegistrationData, PaginatedResult, StudentFilters } from '@/types';
 
 export const LOCAL_STUDENTS_KEY = 'hadescore_local_students';
@@ -130,7 +131,7 @@ export function getLocalStudents(): Student[] {
 
     const raw = localStorage.getItem(LOCAL_STUDENTS_KEY);
     const list: Student[] = raw ? JSON.parse(raw) : [];
-    return list.filter((s) => !deletedIds.has(s.id) && !deletedIds.has(s.email?.toLowerCase()));
+    return list.filter((s) => !deletedIds.has(s.id));
   } catch {
     return [];
   }
@@ -139,12 +140,29 @@ export function getLocalStudents(): Student[] {
 export function saveLocalStudent(data: StudentRegistrationData): { student: Student; isNew: boolean } {
   const students = getLocalStudents();
   const emailNorm = data.email?.toLowerCase().trim();
-  const existingIdx = students.findIndex((s) => s.email?.toLowerCase().trim() === emailNorm);
+  const cleanMobile = data.mobile?.replace(/[^0-9]/g, '').slice(-10);
+
+  // Unblock from deleted set so record is immediately active
+  try {
+    const deletedIds = getDeletedStudentIds();
+    if (emailNorm) deletedIds.delete(emailNorm);
+    if (cleanMobile) deletedIds.delete(cleanMobile);
+    localStorage.setItem(DELETED_STUDENTS_KEY, JSON.stringify(Array.from(deletedIds)));
+    localStorage.removeItem('hadescore_all_students_deleted');
+    localStorage.removeItem('hadescore_all_leads_deleted');
+  } catch {}
+
+  // Match existing student by email OR mobile
+  const existingIdx = students.findIndex((s) =>
+    (emailNorm && s.email?.toLowerCase().trim() === emailNorm) ||
+    (cleanMobile && s.mobile?.replace(/[^0-9]/g, '').slice(-10) === cleanMobile)
+  );
 
   if (existingIdx >= 0) {
     const updated: Student = {
       ...students[existingIdx],
       full_name: data.full_name || students[existingIdx].full_name,
+      email: emailNorm || students[existingIdx].email,
       mobile: data.mobile || students[existingIdx].mobile,
       college: data.college || students[existingIdx].college,
       branch: data.branch || students[existingIdx].branch,
@@ -323,30 +341,67 @@ export function resolveDomainUuid(domainIdOrSlug?: string | null): string | null
 export async function createOrGetStudent(
   data: StudentRegistrationData
 ): Promise<{ student: Student; isNew: boolean }> {
+  const cleanEmail = data.email.toLowerCase().trim();
+  const cleanMobile = data.mobile?.replace(/[^0-9]/g, '').slice(-10);
+  const resolvedDomainId = resolveDomainUuid(data.preferred_domain_id);
+
+  // Unblock previously deleted marks so student / lead appears in Admin Portal
+  try {
+    const rawDel = localStorage.getItem(DELETED_STUDENTS_KEY);
+    if (rawDel) {
+      const set = new Set<string>(JSON.parse(rawDel));
+      set.delete(cleanEmail);
+      if (cleanMobile) set.delete(cleanMobile);
+      localStorage.setItem(DELETED_STUDENTS_KEY, JSON.stringify(Array.from(set)));
+    }
+    localStorage.removeItem('hadescore_all_students_deleted');
+    localStorage.removeItem('hadescore_all_leads_deleted');
+  } catch {}
+
   if (!isSupabaseConfigured) {
     return saveLocalStudent(data);
   }
   try {
-    const cleanEmail = data.email.toLowerCase().trim();
-    const cleanMobile = data.mobile?.replace(/[^0-9]/g, '').slice(-10);
-    const resolvedDomainId = resolveDomainUuid(data.preferred_domain_id);
+    // 1. Check if student exists by email OR by mobile (keeps email & phone number updated)
+    let existing: any = null;
 
-    // Check if student exists by email using limit(1) to avoid PGRST116
-    const { data: existingList, error: fetchError } = await supabase
-      .from('students')
-      .select('*')
-      .eq('email', cleanEmail)
-      .limit(1);
+    if (cleanEmail) {
+      const { data: byEmail } = await supabase
+        .from('students')
+        .select('*')
+        .eq('email', cleanEmail)
+        .limit(1);
+      if (byEmail && byEmail.length > 0) existing = byEmail[0];
+    }
 
-    if (fetchError) throw fetchError;
-    const existing = existingList && existingList.length > 0 ? existingList[0] : null;
+    if (!existing && cleanMobile && cleanMobile.length >= 10) {
+      const { data: byMobile } = await supabase
+        .from('students')
+        .select('*')
+        .eq('mobile', cleanMobile)
+        .limit(1);
+      if (byMobile && byMobile.length > 0) existing = byMobile[0];
+    }
 
     if (existing) {
-      // Update existing student with their latest registration details
+      // Unblock existing ID from deleted set
+      try {
+        const rawDel = localStorage.getItem(DELETED_STUDENTS_KEY);
+        if (rawDel) {
+          const set = new Set<string>(JSON.parse(rawDel));
+          set.delete(existing.id);
+          set.delete(cleanEmail);
+          if (cleanMobile) set.delete(cleanMobile);
+          localStorage.setItem(DELETED_STUDENTS_KEY, JSON.stringify(Array.from(set)));
+        }
+      } catch {}
+
+      // Update existing student with latest email, phone, name, college, domain
       const { data: updated, error: updateError } = await supabase
         .from('students')
         .update({
           full_name: data.full_name || existing.full_name,
+          email: cleanEmail || existing.email,
           mobile: cleanMobile || existing.mobile,
           college: data.college || existing.college,
           branch: data.branch || existing.branch,
@@ -359,12 +414,17 @@ export async function createOrGetStudent(
         .select(`*, preferred_domain:domains(*)`)
         .maybeSingle();
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.warn('[studentService] Existing student update notice:', updateError);
+      }
 
-      // Ensure lead entry exists in Supabase leads table
+      // Ensure lead entry exists in Supabase leads table and is HOT
       try {
         await supabase.from('leads').upsert({
           student_id: existing.id,
+          lead_score: 35,
+          lead_status: 'HOT',
+          qualification_reason: 'Direct Portal Registration',
           last_activity_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }, { onConflict: 'student_id' });
@@ -372,12 +432,19 @@ export async function createOrGetStudent(
         console.warn('[studentService] Existing student lead upsert note:', lErr);
       }
 
+      // Also sync to local student cache
+      saveLocalStudent({
+        ...data,
+        email: cleanEmail,
+        mobile: cleanMobile,
+      });
+
       persistStudentId(existing.id);
       notifyDataChange('new_student_or_lead');
       return { student: (updated || existing) as Student, isNew: false };
     }
 
-    // Create new student with safe columns
+    // 2. Insert new student (or re-register previously deleted student)
     const { data: created, error: createError } = await supabase
       .from('students')
       .insert({
@@ -404,7 +471,45 @@ export async function createOrGetStudent(
       .single();
 
     if (createError) {
-      console.error('[studentService] Supabase student insert error:', createError);
+      // If unique constraint collision occurred on email or mobile, fallback to update that record
+      console.warn('[studentService] Student insert notice, attempting update fallback:', createError.message);
+      const { data: conflictRow } = await supabase
+        .from('students')
+        .select('*')
+        .or(`email.eq.${cleanEmail},mobile.eq.${cleanMobile}`)
+        .limit(1);
+
+      if (conflictRow && conflictRow.length > 0) {
+        const cStudent = conflictRow[0];
+        const { data: resolvedUpdate } = await supabase
+          .from('students')
+          .update({
+            full_name: data.full_name || cStudent.full_name,
+            email: cleanEmail || cStudent.email,
+            mobile: cleanMobile || cStudent.mobile,
+            college: data.college || cStudent.college,
+            branch: data.branch || cStudent.branch,
+            academic_year: data.academic_year || cStudent.academic_year,
+            state: data.state || cStudent.state,
+            preferred_domain_id: resolvedDomainId || cStudent.preferred_domain_id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', cStudent.id)
+          .select()
+          .maybeSingle();
+
+        await supabase.from('leads').upsert({
+          student_id: cStudent.id,
+          lead_status: 'HOT',
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'student_id' }).match(() => {});
+
+        persistStudentId(cStudent.id);
+        notifyDataChange('new_student_or_lead');
+        return { student: (resolvedUpdate || cStudent) as Student, isNew: false };
+      }
+
       throw createError;
     }
 
@@ -429,6 +534,12 @@ export async function createOrGetStudent(
     } catch (leadErr) {
       console.warn('[studentService] Lead upsert note:', leadErr);
     }
+
+    saveLocalStudent({
+      ...data,
+      email: cleanEmail,
+      mobile: cleanMobile,
+    });
 
     persistStudentId(created.id);
     notifyDataChange('new_student_or_lead');
@@ -627,7 +738,7 @@ export async function exportStudentsCSV(filters: StudentFilters): Promise<string
     const { data, error } = await query;
     if (!error && data) {
       const deletedIds = getDeletedStudentIds();
-      list = (data as any[]).filter((s) => !deletedIds.has(s.id) && !deletedIds.has(s.email?.toLowerCase()));
+      list = (data as any[]).filter((s) => !deletedIds.has(s.id));
     }
   }
 
@@ -661,6 +772,19 @@ export async function deleteStudent(studentId: string): Promise<void> {
   // Always remove locally first so UI is immediately and permanently clean
   deleteStudentLocally(studentId);
 
+  // 1. Call Backend API to completely delete from Supabase using Service Key (bypasses RLS)
+  try {
+    const backendUrl = getBackendUrl();
+    await fetch(`${backendUrl}/api/admin/students/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId }),
+    });
+  } catch (bErr) {
+    console.warn('[studentService] Backend deleteStudent note:', bErr);
+  }
+
+  // 2. Also direct Supabase cascade as secondary fallback
   if (isSupabaseConfigured) {
     try {
       // 1. Delete quiz_answers for any attempts by this student
@@ -696,6 +820,19 @@ export async function deleteAllStudents(studentIds?: string[]): Promise<void> {
   // Clear locally
   deleteAllStudentsLocally(studentIds);
 
+  // 1. Call Backend API to completely delete from Supabase using Service Key (bypasses RLS)
+  try {
+    const backendUrl = getBackendUrl();
+    await fetch(`${backendUrl}/api/admin/students/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentIds: studentIds || [] }),
+    });
+  } catch (bErr) {
+    console.warn('[studentService] Backend deleteAllStudents note:', bErr);
+  }
+
+  // 2. Also direct Supabase cascade as secondary fallback
   if (isSupabaseConfigured) {
     try {
       if (studentIds && studentIds.length > 0) {
