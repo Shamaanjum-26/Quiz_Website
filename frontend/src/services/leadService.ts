@@ -2,6 +2,7 @@ import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import type { Lead, LeadActivity, LeadFilters, PaginatedResult } from '@/types';
 import { calculateLeadStatus, buildQualificationReason } from '@/lib/leadScoring';
 import { LOCAL_STUDENTS_KEY, DELETED_STUDENTS_KEY } from '@/services/studentService';
+import { getBackendUrl } from '@/lib/apiConfig';
 
 export const LOCAL_LEADS_KEY = 'hadescore_local_leads';
 export const DELETED_LEADS_KEY = 'hadescore_deleted_leads';
@@ -426,6 +427,7 @@ export async function listLeads(
           for (const lead of leads) {
             const res = resultMap.get(lead.student_id);
             if (res) {
+              lead.has_completed_quiz = true;
               (lead as any).quiz_correct_answers = res.correct;
               (lead as any).quiz_total_questions = res.total;
               (lead as any).quiz_percentage = res.pct;
@@ -569,7 +571,7 @@ export async function exportLeadsCSV(): Promise<string> {
 }
 
 // ── Admin: WhatsApp Automation for Unenrolled Students ───────
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || 'https://quiz-site-2ixp.onrender.com';
+const BACKEND_URL = getBackendUrl();
 
 export async function fetchWhatsAppAutomationStatus(): Promise<{
   success: boolean;

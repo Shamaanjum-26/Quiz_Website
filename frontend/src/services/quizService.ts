@@ -1,6 +1,7 @@
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { persistQuizState, clearQuizState } from '@/lib/analytics';
 import { notifyDataChange } from '@/lib/sync';
+import { getBackendUrl } from '@/lib/apiConfig';
 import type { Domain, Question, QuizAttempt, QuizAnswer, QuizResult } from '@/types';
 
 // ── Get all active domains ────────────────────────────────────
@@ -126,7 +127,7 @@ export async function getStudentAttemptsCount(
   }
 }
 
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL as string) || 'http://localhost:5000';
+const BACKEND_URL = getBackendUrl();
 
 // ── Start a quiz attempt (Backend Engine with Level 2 Deduplication) ───
 export async function startQuizAttempt(
@@ -374,12 +375,39 @@ export async function submitQuiz(
       recommendations,
       calculated_at: new Date().toISOString(),
     }),
+    supabase.from('leads').update({
+      has_completed_quiz: true,
+      has_viewed_result: true,
+      lead_score: Math.min(100, Math.max(50, percentage + 20)),
+      lead_status: percentage >= 50 ? 'HOT' : 'WARM',
+      qualification_reason: `High Intent: completed assessment (${percentage}%), scored ${skillLevel} level`,
+      last_activity_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq('student_id', studentId),
     fetch(`${BACKEND_URL}/api/automation/whatsapp/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ studentId, force: false }),
     }).catch(() => {}),
   ]).catch(() => {});
+
+  // Update local leads sync as well
+  try {
+    const raw = localStorage.getItem('hadescore_local_leads');
+    if (raw) {
+      const leads = JSON.parse(raw);
+      const idx = leads.findIndex((l: any) => l.student_id === studentId);
+      if (idx >= 0) {
+        leads[idx].has_completed_quiz = true;
+        leads[idx].has_viewed_result = true;
+        leads[idx].lead_score = Math.min(100, Math.max(50, percentage + 20));
+        leads[idx].lead_status = percentage >= 50 ? 'HOT' : 'WARM';
+        leads[idx].qualification_reason = `High Intent: completed assessment (${percentage}%), scored ${skillLevel} level`;
+        leads[idx].last_activity_at = new Date().toISOString();
+        localStorage.setItem('hadescore_local_leads', JSON.stringify(leads));
+      }
+    }
+  } catch {}
 
   // Upsert into quiz_results
   const { data: result } = await supabase

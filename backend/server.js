@@ -271,11 +271,12 @@ function initBackgroundAutoRefill() {
   setInterval(runBackgroundAutomations, CHECK_INTERVAL_MS);
 }
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   const currentPort = server.address().port;
   console.log('\n============================================================');
   console.log('🚀  HADESCORE PVT LTD BACKEND SERVER IS RUNNING');
   console.log(`📡  Local URL:              http://localhost:${currentPort}`);
+  console.log(`📱  Network URL:            http://0.0.0.0:${currentPort}`);
   console.log(`💓  Health Check:           http://localhost:${currentPort}/health`);
   console.log(`🧠  Gemini Question Gen:    http://localhost:${currentPort}/api/quiz/generate-bank`);
   console.log(`🎲  Quiz Engine Start:      http://localhost:${currentPort}/api/quiz/start`);

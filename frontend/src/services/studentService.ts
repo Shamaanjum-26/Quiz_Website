@@ -324,6 +324,7 @@ export async function createOrGetStudent(
         .maybeSingle();
 
       persistStudentId(existing.id);
+      notifyDataChange('new_student_or_lead');
       return { student: (updated || existing) as Student, isNew: false };
     }
 
@@ -347,12 +348,16 @@ export async function createOrGetStudent(
     persistStudentId(created.id);
 
     // Create initial lead record
-    await supabase.from('leads').insert({
-      student_id: created.id,
-      lead_score: 5,
-      lead_status: 'NURTURE',
-      qualification_reason: 'NURTURE: initial registration',
-    });
+    try {
+      await supabase.from('leads').upsert({
+        student_id: created.id,
+        lead_score: 5,
+        lead_status: 'NURTURE',
+        qualification_reason: 'NURTURE: initial registration',
+      }, { onConflict: 'student_id' });
+    } catch (leadErr) {
+      console.warn('[studentService] Lead insert note:', leadErr);
+    }
 
     notifyDataChange('new_student_or_lead');
 

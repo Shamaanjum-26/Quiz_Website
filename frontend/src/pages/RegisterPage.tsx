@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { createOrGetStudent, getStudentByEmail } from '@/services/studentService';
 import { getDomains } from '@/services/quizService';
 import { useUTM } from '@/hooks/useUTM';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { toast } from '@/hooks/useToast';
 import { TECH_DOMAINS, type TechDomainOption } from '@/data/techDomains';
 import { FullscreenProctorConfirmModal } from '@/components/quiz/FullscreenProctorConfirmModal';
@@ -39,6 +39,8 @@ export default function RegisterPage() {
   const [pendingFormData, setPendingFormData] = useState<StudentRegistrationInput | null>(null);
   const [otherAcademicYearText, setOtherAcademicYearText] = useState('');
   const [otherAcademicYearError, setOtherAcademicYearError] = useState(false);
+  const [createdStudentId, setCreatedStudentId] = useState<string | null>(null);
+  const [targetDomainData, setTargetDomainData] = useState<{ id?: string; name: string; slug: string } | null>(null);
   const domainPickerRef = useRef<HTMLDivElement>(null);
   const customDomainInputRef = useRef<HTMLInputElement>(null);
 
@@ -126,108 +128,92 @@ export default function RegisterPage() {
       data.academic_year = otherAcademicYearText.trim();
     }
 
-    // Check if email is already registered before showing modal
-    setIsLoading(true);
-    try {
-      const existingStudent = await getStudentByEmail(data.email);
-      if (existingStudent) {
-        toast({
-          title: '⚠️ Email Already Registered',
-          description: `Candidate email '${data.email}' has already attended / registered for the assessment. Re-attempts with the same email are not permitted.`,
-          variant: 'destructive',
-        });
-        setIsLoading(false);
-        return;
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoading(false);
+    let chosenName = selectedDomainObj?.name || 'Python';
+    let chosenSlug = selectedDomainObj?.slug || 'python';
+    let targetDomainId = selectedDomainObj?.id;
+
+    if (isCustomDomain) {
+      chosenName = customDomainText.trim();
+      chosenSlug = chosenName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      targetDomainId = undefined;
     }
 
-    setPendingFormData(data);
-    setShowProctorModal(true);
-  };
-
-  const handleConfirmedStart = async () => {
-    if (!pendingFormData) return;
-    const data = pendingFormData;
-
     setIsLoading(true);
     try {
-      // ── Strict 1 Attempt Per Email Limit Enforcement ─────────────
+      // 1. Strict 1 Attempt limit: Check if candidate email already COMPLETED/SUBMITTED the quiz
       const existingStudent = await getStudentByEmail(data.email);
-      if (existingStudent) {
-        toast({
-          title: '⚠️ Assessment Attempt Limit Reached',
-          description: `Candidate email '${data.email}' has already registered / attended this assessment. Only 1 attempt is allowed per candidate.`,
-          variant: 'destructive',
-        });
-        setIsLoading(false);
-        setShowProctorModal(false);
-        return;
-      }
+      if (existingStudent && isSupabaseConfigured) {
+        const { data: pastResult } = await supabase
+          .from('quiz_results')
+          .select('id')
+          .eq('student_id', existingStudent.id)
+          .limit(1);
 
-      let chosenName = selectedDomainObj?.name || 'Python';
-      let chosenSlug = selectedDomainObj?.slug || 'python';
-      let targetDomainId = selectedDomainObj?.id;
-
-      if (isCustomDomain) {
-        chosenName = customDomainText.trim();
-        chosenSlug = chosenName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        targetDomainId = undefined;
-      }
-
-      let studentId = 'student-' + Date.now();
-
-      if (isSupabaseConfigured) {
-        try {
-          const { student, isNew } = await createOrGetStudent({
-            ...data,
-            preferred_domain_id: targetDomainId && targetDomainId !== 'custom' ? targetDomainId : undefined,
-            linkedin_url: data.linkedin_url || undefined,
-          });
-          studentId = student.id;
-          setIsExisting(!isNew);
+        if (pastResult && pastResult.length > 0) {
           toast({
-            title: isNew ? 'Registration successful! 🎉' : 'Welcome back! 👋',
-            description: `Starting your timed ${chosenName} assessment now...`,
-            variant: 'success',
+            title: '⚠️ Assessment Attempt Limit Reached',
+            description: `Candidate email '${data.email}' has already attended and submitted this assessment. Only 1 attempt is allowed per candidate.`,
+            variant: 'destructive',
           });
-        } catch (dbErr) {
-          console.warn('Database note:', dbErr);
-          toast({
-            title: 'Starting Assessment',
-            description: `Preparing your ${chosenName} quiz...`,
-            variant: 'default',
-          });
+          setIsLoading(false);
+          return;
         }
-      } else {
-        toast({
-          title: 'Demo Mode Active',
-          description: `Starting your ${chosenName} assessment...`,
-          variant: 'default',
-        });
       }
 
-      setShowProctorModal(false);
+      // 2. IMMEDIATELY SAVE CANDIDATE DATA TO DATABASE & LEADS!
+      // This ensures that the moment "Continue to Quiz" is clicked, student data appears in Admin immediately!
+      let studentId = 'student-' + Date.now();
+      let isNewStudent = true;
 
-      setTimeout(() => {
-        navigate(`/quiz/${chosenSlug}`, {
-          state: {
-            studentId,
-            domainId: targetDomainId,
-            customDomainName: isCustomDomain ? chosenName : undefined,
-          },
+      try {
+        const { student, isNew } = await createOrGetStudent({
+          ...data,
+          preferred_domain_id: targetDomainId && targetDomainId !== 'custom' ? targetDomainId : undefined,
+          linkedin_url: data.linkedin_url || undefined,
         });
-      }, 500);
+        studentId = student.id;
+        isNewStudent = isNew;
+        setIsExisting(!isNew);
+      } catch (dbErr) {
+        console.warn('Student persistence note:', dbErr);
+      }
+
+      setCreatedStudentId(studentId);
+      setTargetDomainData({ id: targetDomainId, name: chosenName, slug: chosenSlug });
+      setPendingFormData(data);
+
+      toast({
+        title: isNewStudent ? 'Details Saved! 🎉' : 'Welcome back! 👋',
+        description: `Registered for ${chosenName} assessment. Starting proctored quiz...`,
+        variant: 'success',
+      });
+
+      // Show Proctor Modal for fullscreen confirmation
+      setShowProctorModal(true);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Registration failed. Please try again.';
       toast({ title: 'Error', description: msg, variant: 'destructive' });
-      setShowProctorModal(false);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleConfirmedStart = () => {
+    setShowProctorModal(false);
+    const studentId = createdStudentId || 'student-' + Date.now();
+    const chosenSlug = targetDomainData?.slug || selectedDomainObj?.slug || 'python';
+    const targetDomainId = targetDomainData?.id || selectedDomainObj?.id;
+    const chosenName = targetDomainData?.name || selectedDomainObj?.name || 'Quiz';
+
+    setTimeout(() => {
+      navigate(`/quiz/${chosenSlug}`, {
+        state: {
+          studentId,
+          domainId: targetDomainId,
+          customDomainName: isCustomDomain ? chosenName : undefined,
+        },
+      });
+    }, 400);
   };
 
   return (

@@ -234,7 +234,7 @@ export default function AdminLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<LeadStatus | 'ALL'>('ALL');
+  const [activeFilter, setActiveFilter] = useState<LeadStatus | 'ALL' | 'QUIZ_COMPLETED'>('ALL');
   const [search, setSearch] = useState(domainParam || campaignParam || '');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [quickDate, setQuickDate] = useState<'all' | 'today' | 'yesterday' | '7days'>('all');
@@ -253,7 +253,7 @@ export default function AdminLeadsPage() {
     setLoading(true);
     const filters: LeadFilters = {
       search: search || undefined,
-      status: activeFilter !== 'ALL' ? activeFilter : undefined,
+      status: activeFilter !== 'ALL' && activeFilter !== 'QUIZ_COMPLETED' ? activeFilter : undefined,
       sort_by: 'lead_score',
       sort_order: 'desc',
     };
@@ -501,7 +501,9 @@ Hadescore Team`;
   const filteredLeads = useMemo(() => {
     let list = leads;
 
-    if (activeFilter !== 'ALL') {
+    if (activeFilter === 'QUIZ_COMPLETED') {
+      list = list.filter((l) => l.has_completed_quiz);
+    } else if (activeFilter !== 'ALL') {
       list = list.filter((l) => l.lead_status === activeFilter);
     }
 
@@ -583,6 +585,7 @@ Hadescore Team`;
     return list;
   }, [leads, activeFilter, showDuplicatesOnly, search, selectedDate, quickDate, sortByDays, duplicateLeadIds]);
 
+  const quizCompletedCount = leads.filter((l) => l.has_completed_quiz).length;
   const hotCount = leads.filter((l) => l.lead_status === 'HOT').length;
   const warmCount = leads.filter((l) => l.lead_status === 'WARM').length;
   const nurtureCount = leads.filter((l) => l.lead_status === 'NURTURE').length;
@@ -726,6 +729,7 @@ Hadescore Team`;
         <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/60 overflow-x-auto relative">
           {[
             { key: 'ALL', label: 'All Leads', count: total },
+            { key: 'QUIZ_COMPLETED', label: 'Quiz Submitted', count: quizCompletedCount, dot: 'bg-emerald-500' },
             { key: 'HOT', label: 'High Intent', count: hotCount, dot: 'bg-rose-500' },
             { key: 'WARM', label: 'Engaged', count: warmCount, dot: 'bg-amber-500' },
             { key: 'NURTURE', label: 'Early Stage', count: nurtureCount, dot: 'bg-sky-500' },

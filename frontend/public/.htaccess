@@ -13,10 +13,11 @@
   # 2. Prevent direct access to hidden files (.env, .git, etc.)
   RewriteRule "(^|/)\.(?!well-known)" - [F]
 
-  # 3. HTML5 SPA Routing: redirect all requests not matching existing files/directories to index.html
+  # 3. HTML5 SPA Routing: redirect all non-file/non-dir requests to root /index.html
+  RewriteRule ^index\.html$ - [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule ^ index.html [L]
+  RewriteRule . /index.html [L]
 </IfModule>
 
 # ============================================================

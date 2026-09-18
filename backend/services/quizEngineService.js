@@ -558,6 +558,19 @@ async function submitQuizAttempt(attemptId, studentId, answers) {
       method: 'POST',
       headers: { 'Prefer': 'resolution=merge-duplicates' },
       body: [resultPayload]
+    }),
+    // Update leads table with quiz completion status and high intent score
+    supabaseFetch(`leads?student_id=eq.${studentId}`, {
+      method: 'PATCH',
+      body: {
+        has_completed_quiz: true,
+        has_viewed_result: true,
+        lead_score: Math.min(100, Math.max(50, percentage + 20)),
+        lead_status: percentage >= 50 ? 'HOT' : 'WARM',
+        qualification_reason: `High Intent: completed assessment (${percentage}%), scored ${skillLevel} level`,
+        last_activity_at: now.toISOString(),
+        updated_at: now.toISOString()
+      }
     })
   ];
 
