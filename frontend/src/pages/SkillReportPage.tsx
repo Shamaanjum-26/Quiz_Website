@@ -109,7 +109,7 @@ export default function SkillReportPage() {
               alt={domain?.name || 'Skill'}
               className="w-16 h-16 rounded-2xl object-contain shadow-lg bg-white/10 p-2 backdrop-blur-xs"
               onError={(e) => {
-                (e.target as HTMLImageElement).src = '/domains/default.svg';
+                (e.target as HTMLImageElement).src = '/domains/default.png';
               }}
             />
           </div>

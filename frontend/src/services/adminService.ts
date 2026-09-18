@@ -268,11 +268,11 @@ export async function getDailyAnalyticsData(days = 7): Promise<DetailedAnalytics
     .sort((a, b) => b.count - a.count)
     .slice(0, 8);
 
-  // If today's total is 0, provide daily average/recent active metrics so stats are meaningful
-  const totalStudents = todayMetrics.students;
-  const totalAttempts = todayMetrics.attempts;
-  const totalReports = todayMetrics.reports || (totalAttempts > 0 ? totalAttempts : 0);
-  const totalBootcamp = todayMetrics.bootcamp;
+  // Aggregate metrics for active period so cards are always live and updated
+  const totalStudents = Math.max(studentRows.length, todayMetrics.students);
+  const totalAttempts = Math.max(attemptRows.length, todayMetrics.attempts);
+  const totalReports = Math.max(resultRows.length, todayMetrics.reports, totalAttempts > 0 ? totalAttempts : 0);
+  const totalBootcamp = Math.max(bootcampRows.length, leadRows.filter((l) => l.has_registered_bootcamp).length, todayMetrics.bootcamp);
 
   const milestones: AnalyticsMilestones = {
     total_students: totalStudents,
@@ -385,10 +385,10 @@ export async function getMonthlyAnalyticsData(months = 6): Promise<DetailedAnaly
   });
 
   const curMonthStats = monthMap[currentMonthKey] || { students: 0, attempts: 0, reports: 0, bootcamp: 0 };
-  const totalStudents = curMonthStats.students;
-  const totalAttempts = curMonthStats.attempts;
-  const totalReports = curMonthStats.reports;
-  const totalBootcamp = curMonthStats.bootcamp;
+  const totalStudents = Math.max(studentRows.length, curMonthStats.students);
+  const totalAttempts = Math.max(attemptRows.length, curMonthStats.attempts);
+  const totalReports = Math.max(resultRows.length, curMonthStats.reports, totalAttempts > 0 ? totalAttempts : 0);
+  const totalBootcamp = Math.max(bootcampRows.length, leadRows.filter((l) => l.has_registered_bootcamp).length, curMonthStats.bootcamp);
 
   const milestones: AnalyticsMilestones = {
     total_students: totalStudents,

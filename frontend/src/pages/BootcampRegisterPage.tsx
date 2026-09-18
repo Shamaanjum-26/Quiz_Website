@@ -32,6 +32,7 @@ export default function BootcampRegisterPage() {
   const bootcampId = navState.bootcampId || 'default-bootcamp-id';
   const bootcampName = navState.bootcampName || `${domainName} Fast-Track Bootcamp`;
   const quizResultId = navState.quizResultId || null;
+  const [imgError, setImgError] = useState(false);
 
   // Date calculation
   const todayStr = new Date().toISOString().split('T')[0];
@@ -227,14 +228,16 @@ export default function BootcampRegisterPage() {
 
             <div className="flex items-start gap-4">
               <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/20 p-2 shrink-0 flex items-center justify-center">
-                <img
-                  src={getDomainIconPath(domainSlug || domainName, undefined)}
-                  alt={domainName}
-                  className="w-full h-full object-contain"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = '/domains/default.svg';
-                  }}
-                />
+                {imgError ? (
+                  <Sparkles className="w-7 h-7 text-[#00D8F6]" />
+                ) : (
+                  <img
+                    src={getDomainIconPath(domainSlug || domainName, undefined, domainName)}
+                    alt={domainName}
+                    className="w-full h-full object-contain"
+                    onError={() => setImgError(true)}
+                  />
+                )}
               </div>
               <div>
                 <h1 className="font-display font-extrabold text-2xl sm:text-3xl text-white mb-1.5">

@@ -26,6 +26,7 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true);
   const [studentName, setStudentName] = useState<string>('');
   const [bootcamp, setBootcamp] = useState<Bootcamp | null>(null);
+  const [imgError, setImgError] = useState(false);
 
   const studentId = getPersistedStudentId();
   const stateResult = (location.state as any)?.result || (location.state as any)?.devResult;
@@ -231,15 +232,17 @@ export default function ResultPage() {
           {/* Header Row: Domain & Status */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-200 p-2.5 flex items-center justify-center shrink-0">
-                <img
-                  src={getDomainIconPath(targetDomainSlug, undefined)}
-                  alt={domainName}
-                  className="w-full h-full object-contain"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = '/domains/default.svg';
-                  }}
-                />
+              <div className="w-14 h-14 rounded-2xl bg-indigo-50/80 border border-indigo-100 p-2.5 flex items-center justify-center shrink-0 shadow-xs">
+                {imgError ? (
+                  <Sparkles className="w-7 h-7 text-indigo-600" />
+                ) : (
+                  <img
+                    src={getDomainIconPath(targetDomainSlug, undefined, domainName)}
+                    alt={domainName}
+                    className="w-full h-full object-contain"
+                    onError={() => setImgError(true)}
+                  />
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-1">

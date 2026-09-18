@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { getDomainBySlug, getQuestionsForQuiz, startQuizAttempt, submitQuiz, getStoredQuizConfig } from '@/services/quizService';
+import { getDomainBySlug, getQuestionsForQuiz, startQuizAttempt, submitQuiz, getStoredQuizConfig, fetchQuizConfig } from '@/services/quizService';
 import { getDomainQuestions } from '@/services/questionBank';
 import { generateQuestionsWithGemini } from '@/services/geminiService';
 import { trackLeadActivity } from '@/services/leadService';
@@ -68,31 +68,46 @@ export default function QuizPage() {
   const [proctoringError, setProctoringError] = useState<string | null>(null);
 
   const stopProctoring = useCallback(() => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => {
+    try {
+      if (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream) {
         try {
-          track.stop();
+          (window as any).__prewarmedProctorStream.getTracks().forEach((track: MediaStreamTrack) => {
+            try { track.stop(); } catch {}
+          });
         } catch {}
-      });
-      mediaStreamRef.current = null;
-    }
-    if (mediaStream) {
-      mediaStream.getTracks().forEach((track) => {
+        (window as any).__prewarmedProctorStream = null;
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch {}
+        });
+        mediaStreamRef.current = null;
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch {}
+        });
+        setMediaStream(null);
+      }
+      if (videoRef.current) {
         try {
-          track.stop();
+          videoRef.current.pause();
         } catch {}
-      });
-      setMediaStream(null);
+        videoRef.current.srcObject = null;
+      }
+      setCameraActive(false);
+      setMicActive(false);
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+    } catch (e) {
+      console.warn('stopProctoring note:', e);
     }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setCameraActive(false);
-    setMicActive(false);
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-  }, [mediaStream]);
+  }, []);
 
   // ── Draggable Floating Proctoring Widget ───────────────────
   // Default position: top right (safe from Next / Previous buttons)
@@ -175,18 +190,32 @@ export default function QuizPage() {
         mediaStreamRef.current = null;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
-        audio: true,
-      });
-      mediaStreamRef.current = stream;
-      setMediaStream(stream);
-      setCameraActive(true);
-      setMicActive(true);
-      setProctoringError(null);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
+          audio: true,
+        });
+      } catch (audioErr) {
+        console.warn('Audio+Video failed, fallback to video only:', audioErr);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
+          audio: false,
+        });
+      }
+
+      if (stream) {
+        mediaStreamRef.current = stream;
+        setMediaStream(stream);
+        const hasVideo = stream.getVideoTracks().some((t) => t.readyState === 'live');
+        const hasAudio = stream.getAudioTracks().some((t) => t.readyState === 'live');
+        setCameraActive(hasVideo);
+        setMicActive(hasAudio);
+        setProctoringError(null);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
       }
     } catch (err) {
       console.warn('Camera/mic proctoring note:', err);
@@ -383,24 +412,29 @@ export default function QuizPage() {
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('beforeprint', handleBeforePrint);
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-        mediaStreamRef.current = null;
-      }
+      stopProctoring();
     };
-  }, []);
+  }, [stopProctoring]);
 
-  // ── Start camera/mic ONLY when quiz finishes loading ──────────
-  // This ensures proctoring never activates during the form or loading spinner screen.
+  // ── Camera/mic proctoring activation ──────────
   useEffect(() => {
-    if (!loading) {
-      // Small delay to ensure the quiz UI is rendered before asking for permissions
-      const timer = setTimeout(() => {
-        requestProctoring();
-      }, 300);
-      return () => clearTimeout(timer);
+    if (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream) {
+      const stream = (window as any).__prewarmedProctorStream as MediaStream;
+      (window as any).__prewarmedProctorStream = null;
+      mediaStreamRef.current = stream;
+      setMediaStream(stream);
+      const hasVideo = stream.getVideoTracks().some((t) => t.readyState === 'live');
+      const hasAudio = stream.getAudioTracks().some((t) => t.readyState === 'live');
+      setCameraActive(hasVideo);
+      setMicActive(hasAudio);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+    } else if (!cameraActive) {
+      requestProctoring();
     }
-  }, [loading]);
+  }, [requestProctoring, cameraActive]);
 
   useEffect(() => {
     if (mediaStream && videoRef.current) {
@@ -470,9 +504,15 @@ export default function QuizPage() {
           domainData.name = (location.state as any).customDomainName;
         }
 
-        setDomain(domainData);
         const quizConfig = getStoredQuizConfig();
-        const targetQCount = quizConfig.questions_per_quiz || 10;
+        let targetQCount = quizConfig.questions_per_quiz || 10;
+        try {
+          const latestConf = await fetchQuizConfig();
+          if (latestConf && latestConf.questions_per_quiz) {
+            targetQCount = latestConf.questions_per_quiz;
+          }
+        } catch {}
+
         const targetMinutes = quizConfig.quiz_timer_minutes || domainData.estimated_minutes || 15;
         setTimeLeft(targetMinutes * 60);
 
@@ -500,8 +540,8 @@ export default function QuizPage() {
         if (questions.length === 0) {
           try {
             const aiQuestions = await generateQuestionsWithGemini(domainData.name, targetQCount, 'intermediate');
-            if (aiQuestions && aiQuestions.length > 0) {
-              questions = aiQuestions;
+            if (aiQuestions && aiQuestions.length >= targetQCount) {
+              questions = aiQuestions.slice(0, targetQCount);
             }
           } catch (aiErr) {
             console.warn('[QuizPage] Gemini AI generation note:', aiErr);
@@ -519,17 +559,41 @@ export default function QuizPage() {
           }
         }
 
-        // 3. Fallback to offline curated domain questions generator
-        if (!questions || questions.length === 0) {
-          questions = getDomainQuestions(domainSlug, domainData.name);
+        // 3. Ensure EXACT target question count across ALL domains
+        if (!questions || questions.length < targetQCount) {
+          const fallbackPool = getDomainQuestions(domainSlug, domainData.name, targetQCount);
+          if (!questions || questions.length === 0) {
+            questions = fallbackPool;
+          } else {
+            const existingIds = new Set(questions.map((q) => q.id));
+            for (const fq of fallbackPool) {
+              if (questions.length >= targetQCount) break;
+              if (!existingIds.has(fq.id)) {
+                questions.push(fq);
+                existingIds.add(fq.id);
+              }
+            }
+          }
         }
 
-        // 4. Final safety net: If questions array is still empty, load default Python questions
-        if (!questions || questions.length === 0) {
-          questions = getDomainQuestions('python', 'Python');
+        // 4. Final safety net: If questions array is still short, generate with default Python
+        if (!questions || questions.length < targetQCount) {
+          const safetyPool = getDomainQuestions('python', 'Python', targetQCount);
+          if (!questions || questions.length === 0) {
+            questions = safetyPool;
+          } else {
+            const existingIds = new Set(questions.map((q) => q.id));
+            for (const sq of safetyPool) {
+              if (questions.length >= targetQCount) break;
+              if (!existingIds.has(sq.id)) {
+                questions.push(sq);
+                existingIds.add(sq.id);
+              }
+            }
+          }
         }
 
-        // Slice questions array to match exact admin questions_per_quiz setting
+        // Ensure EXACT target question count
         if (questions.length > targetQCount) {
           questions = questions.slice(0, targetQCount);
         }
@@ -538,9 +602,11 @@ export default function QuizPage() {
         setError(null);
       } catch (err) {
         console.warn('Quiz load encountered issue, applying local question bank:', err);
-        const fallbackQs = getDomainQuestions(domainSlug || 'python', domainSlug);
+        const cfg = getStoredQuizConfig();
+        const fallbackTarget = cfg.questions_per_quiz || 10;
+        const fallbackQs = getDomainQuestions(domainSlug || 'python', domainSlug, fallbackTarget);
         if (fallbackQs && fallbackQs.length > 0) {
-          quiz.setQuestions(fallbackQs);
+          quiz.setQuestions(fallbackQs.slice(0, fallbackTarget));
           setError(null);
         } else {
           setError(err instanceof Error ? err.message : 'Failed to load quiz');
@@ -1161,13 +1227,13 @@ export default function QuizPage() {
             </span>
           </div>
 
-          {proctoringError && (
+          {(!cameraActive || proctoringError) && (
             <button
               type="button"
-              onClick={requestProctoring}
-              className="mt-1.5 w-full py-1 text-[10px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors cursor-pointer"
+              onClick={() => requestProctoring()}
+              className="mt-1.5 w-full py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors cursor-pointer pointer-events-auto"
             >
-              Grant Camera & Mic
+              Start Camera & Mic
             </button>
           )}
         </div>

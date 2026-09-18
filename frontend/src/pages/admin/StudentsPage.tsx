@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Search,
   Download,
@@ -32,7 +32,6 @@ import {
   LOCAL_STUDENTS_KEY,
 } from '@/services/studentService';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
-import { subscribeToDataChanges } from '@/lib/sync';
 import { formatDate, formatRelativeTime } from '@/lib/analytics';
 import { toast } from '@/hooks/useToast';
 import type { Student, StudentFilters } from '@/types';
@@ -61,13 +60,13 @@ const SAMPLE_STUDENTS: Student[] = [
     email: 'rahul@example.com',
     mobile: '9765432109',
     college: 'SRM University',
-    branch: 'Information Technology (IT)',
+    branch: 'Information Technology',
     academic_year: '2nd Year',
-    state: 'Tamil Nadu',
+    state: 'Karnataka',
     consent: true,
     is_verified: true,
-    whatsapp_opt_in: true,
-    preferred_domain: { id: 'd2', name: 'Full-Stack Web Dev', slug: 'web-development', icon: '🌐', color: '#10b981', difficulty: 'intermediate', question_count: 30, estimated_minutes: 30, active: true, display_order: 2, created_at: '', updated_at: '' },
+    whatsapp_opt_in: false,
+    preferred_domain: { id: 'd2', name: 'Full-Stack Web Dev', slug: 'web-dev', icon: '💻', color: '#4f46e5', difficulty: 'intermediate', question_count: 30, estimated_minutes: 30, active: true, display_order: 2, created_at: '', updated_at: '' },
     created_at: new Date(Date.now() - 7200000).toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -103,8 +102,12 @@ export default function AdminStudentsPage() {
   const [deletingAll, setDeletingAll] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const initialLoadedRef = useRef(false);
+
+  const load = useCallback(async (isSilent = false) => {
+    if (!isSilent && !initialLoadedRef.current) {
+      setLoading(true);
+    }
     try {
       if (!isSupabaseConfigured) {
         const local = getLocalStudents();
@@ -122,44 +125,15 @@ export default function AdminStudentsPage() {
       setStudents(local);
       setTotal(local.length);
     } finally {
-      setLoading(false);
+      initialLoadedRef.current = true;
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    load();
-
-    // 1. Cross-tab and local real-time listener (updates instantaneously in 0ms)
-    const unsubscribeSync = subscribeToDataChanges(() => {
-      load();
-    });
-
-    // 2. Supabase Realtime channel subscription for live updates from any user
-    let channel: any = null;
-    if (isSupabaseConfigured) {
-      channel = supabase
-        .channel('admin-students-realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
-          load();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-          load();
-        })
-        .subscribe();
-    }
-
-    // 3. Fallback heartbeat polling every 4 seconds
-    const interval = setInterval(() => {
-      load();
-    }, 4000);
-
-    return () => {
-      unsubscribeSync();
-      clearInterval(interval);
-      if (channel) {
-        supabase.removeChannel(channel);
-      }
-    };
+    load(false);
   }, [load]);
 
   // Filter students based on search and selected calendar date

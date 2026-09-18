@@ -67,7 +67,7 @@ export default function AdminDashboardPage() {
   const [isLiveSyncing, setIsLiveSyncing] = useState(false);
   const navigate = useNavigate();
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (isSilent = false) => {
     if (!isSupabaseConfigured) {
       try {
         const localStudents = getLocalStudents();
@@ -139,57 +139,59 @@ export default function AdminDashboardPage() {
       return;
     }
     try {
-      setIsLiveSyncing(true);
+      if (!isSilent) setIsLiveSyncing(true);
       const [dashStats, dayData, domData] = await Promise.all([
         getDashboardStats(),
         getLeadsByDay(10),
         getDomainPopularity(),
       ]);
-      if (dashStats) setStats(dashStats);
-      if (dayData) setLeadsByDay(dayData);
-      if (domData) setDomainPop(domData);
+      if (dashStats) {
+        setStats((prev) => JSON.stringify(prev) === JSON.stringify(dashStats) ? prev : dashStats);
+      }
+      if (dayData && dayData.length > 0) {
+        setLeadsByDay((prev) => JSON.stringify(prev) === JSON.stringify(dayData) ? prev : dayData);
+      }
+      if (domData && domData.length > 0) {
+        setDomainPop((prev) => JSON.stringify(prev) === JSON.stringify(domData) ? prev : domData);
+      }
     } catch (err) {
       console.error('Dashboard live data fetch error:', err);
     } finally {
-      setIsLiveSyncing(false);
+      if (!isSilent) setIsLiveSyncing(false);
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
 
-    // Cross-tab and local broadcast channel sync
+    // Cross-tab and local broadcast channel sync (silent)
     const unsubscribeSync = subscribeToDataChanges(() => {
-      loadData();
+      loadData(true);
     });
 
-    // Supabase Real-Time subscription for instant dashboard updates
+    // Supabase Real-Time subscription for instant dashboard updates (silent)
     const channel = supabase
       .channel('admin-dashboard-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
-        loadData();
+        loadData(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-        loadData();
+        loadData(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_attempts' }, () => {
-        loadData();
+        loadData(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_results' }, () => {
-        loadData();
+        loadData(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bootcamp_registrations' }, () => {
-        loadData();
+        loadData(true);
       })
       .subscribe();
-
-    // Polling heartbeat every 4 seconds
-    const interval = setInterval(loadData, 4000);
 
     return () => {
       unsubscribeSync();
       supabase.removeChannel(channel);
-      clearInterval(interval);
     };
   }, [loadData]);
 
@@ -315,6 +317,7 @@ export default function AdminDashboardPage() {
                   name="Candidates"
                   fill="#10b981"
                   radius={[0, 6, 6, 0]}
+                  isAnimationActive={false}
                   onClick={(entry) => handleDomainBarClick(entry)}
                   className="cursor-pointer"
                 >
@@ -371,6 +374,7 @@ export default function AdminDashboardPage() {
                 stroke="#059669"
                 strokeWidth={2.5}
                 fillOpacity={1}
+                isAnimationActive={false}
                 fill="url(#leadInflowGrad)"
               />
             </AreaChart>

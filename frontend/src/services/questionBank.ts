@@ -213,205 +213,253 @@ const DOMAIN_QUESTIONS: Record<string, any[]> = {
   ],
 };
 
-// Generate tailored dynamic questions for ANY domain or custom topic
-export function getDomainQuestions(domainSlug: string, domainName?: string): Question[] {
+// Generate tailored dynamic questions for ANY domain or custom topic matching exact admin setting
+export function getDomainQuestions(
+  domainSlug: string,
+  domainName?: string,
+  targetCount: number = 10
+): Question[] {
   const cleanSlug = (domainSlug || '').toLowerCase().trim();
   const title = domainName || cleanSlug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const count = Math.max(1, Math.min(50, targetCount || 10));
 
-  // Check direct match
+  const questions: Question[] = [];
+
+  // 1. Check direct curated match first
   for (const [key, qList] of Object.entries(DOMAIN_QUESTIONS)) {
     if (cleanSlug.includes(key) || key.includes(cleanSlug)) {
-      return (qList as Question[]).map((q) => ({
-        ...q,
-        domain_id: domainSlug,
-        active: true,
-        display_order: 1,
-        created_at: '',
-        updated_at: '',
-        options: (q.options || []).map((o: any) => ({ ...o, question_id: q.id })),
-      }));
+      (qList as any[]).forEach((q, idx) => {
+        const diff: 'easy' | 'medium' | 'hard' = q.difficulty || 'medium';
+        const qId = `${cleanSlug}-curated-${idx + 1}`;
+        questions.push({
+          ...q,
+          id: qId,
+          tier_label: q.tier_label || (diff === 'easy' ? 'Foundational' : diff === 'medium' ? 'Core Applied' : 'Advanced Architecture'),
+          domain_id: domainSlug,
+          active: true,
+          display_order: idx + 1,
+          created_at: '',
+          updated_at: '',
+          options: (q.options || []).map((o: any, oIdx: number) => ({
+            id: o.id || `${qId}-${String.fromCharCode(97 + oIdx)}`,
+            question_id: qId,
+            option_text: o.option_text,
+            option_order: o.option_order || oIdx + 1,
+            is_correct: !!o.is_correct,
+          })),
+        });
+      });
+      break;
     }
+  }
+
+  // If we already have enough questions from curated list, return exact slice
+  if (questions.length >= count) {
+    return questions.slice(0, count);
   }
 
   // Is this a core engineering / non-tech / management subject?
   const isNonTech = /mech|civil|eee|ece|electric|chem|biotech|aero|industr|mba|mgmt|manage|finan|acc|hr|market|supply|sales|design|ui|ux|graphic|writing/i.test(cleanSlug);
 
-  if (isNonTech) {
-    return [
-      {
-        id: `${cleanSlug}-q1`,
-        question_text: `What is the primary objective and fundamental methodology of ${title}?`,
-        difficulty: 'easy',
-        marks: 1,
-        domain_id: domainSlug,
-        active: true,
-        display_order: 1,
-        created_at: '',
-        updated_at: '',
-        options: [
-          { id: `${cleanSlug}-q1-a`, question_id: `${cleanSlug}-q1`, option_text: `Systematic problem-solving, quality optimization, and industry standard execution in ${title}`, is_correct: true },
-          { id: `${cleanSlug}-q1-b`, question_id: `${cleanSlug}-q1`, option_text: `Ad-hoc manual estimation without adhering to safety or regulatory frameworks`, is_correct: false },
-          { id: `${cleanSlug}-q1-c`, question_id: `${cleanSlug}-q1`, option_text: `Elimination of documentation, peer review, and verification protocols`, is_correct: false },
-          { id: `${cleanSlug}-q1-d`, question_id: `${cleanSlug}-q1`, option_text: `Relying solely on outdated legacy techniques without analytical tools`, is_correct: false },
-        ],
-      },
-      {
-        id: `${cleanSlug}-q2`,
-        question_text: `Which core principle is essential for maintaining high quality and efficiency in ${title}?`,
-        difficulty: 'medium',
-        marks: 1,
-        domain_id: domainSlug,
-        active: true,
-        display_order: 2,
-        created_at: '',
-        updated_at: '',
-        options: [
-          { id: `${cleanSlug}-q2-a`, question_id: `${cleanSlug}-q2`, option_text: `Standardized workflows, thorough risk assessment, and continuous iteration`, is_correct: true },
-          { id: `${cleanSlug}-q2-b`, question_id: `${cleanSlug}-q2`, option_text: `Operating without tolerance limits or measurable performance metrics`, is_correct: false },
-          { id: `${cleanSlug}-q2-c`, question_id: `${cleanSlug}-q2`, option_text: `Ignoring safety margins and international compliance guidelines`, is_correct: false },
-          { id: `${cleanSlug}-q2-d`, question_id: `${cleanSlug}-q2`, option_text: `Maximizing short-term speed by skipping critical inspection steps`, is_correct: false },
-        ],
-      },
-      {
-        id: `${cleanSlug}-q3`,
-        question_text: `How do professionals in ${title} effectively evaluate and mitigate operational risks?`,
-        difficulty: 'medium',
-        marks: 1,
-        domain_id: domainSlug,
-        active: true,
-        display_order: 3,
-        created_at: '',
-        updated_at: '',
-        options: [
-          { id: `${cleanSlug}-q3-a`, question_id: `${cleanSlug}-q3`, option_text: `By conducting failure mode analysis, stress testing, and structured audits`, is_correct: true },
-          { id: `${cleanSlug}-q3-b`, question_id: `${cleanSlug}-q3`, option_text: `By assuming optimal conditions and disregarding environmental variables`, is_correct: false },
-          { id: `${cleanSlug}-q3-c`, question_id: `${cleanSlug}-q3`, option_text: `Through reactive measures only after catastrophic system failure occurs`, is_correct: false },
-          { id: `${cleanSlug}-q3-d`, question_id: `${cleanSlug}-q3`, option_text: `By delegating all responsibility without documented guidelines`, is_correct: false },
-        ],
-      },
-      {
-        id: `${cleanSlug}-q4`,
-        question_text: `Which metric is most vital when evaluating project success and productivity in ${title}?`,
-        difficulty: 'hard',
-        marks: 1,
-        domain_id: domainSlug,
-        active: true,
-        display_order: 4,
-        created_at: '',
-        updated_at: '',
-        options: [
-          { id: `${cleanSlug}-q4-a`, question_id: `${cleanSlug}-q4`, option_text: `Yield accuracy, resource efficiency, safety compliance, and measurable ROI`, is_correct: true },
-          { id: `${cleanSlug}-q4-b`, question_id: `${cleanSlug}-q4`, option_text: `Number of theoretical meetings conducted per week`, is_correct: false },
-          { id: `${cleanSlug}-q4-c`, question_id: `${cleanSlug}-q4`, option_text: `Physical weight of printed paper documentation`, is_correct: false },
-          { id: `${cleanSlug}-q4-d`, question_id: `${cleanSlug}-q4`, option_text: `Arbitrary subjective opinions without empirical validation`, is_correct: false },
-        ],
-      },
-      {
-        id: `${cleanSlug}-q5`,
-        question_text: `What modern technological advancement is having the greatest transformative impact on ${title}?`,
-        difficulty: 'medium',
-        marks: 1,
-        domain_id: domainSlug,
-        active: true,
-        display_order: 5,
-        created_at: '',
-        updated_at: '',
-        options: [
-          { id: `${cleanSlug}-q5-a`, question_id: `${cleanSlug}-q5`, option_text: `Digital simulations, AI-driven predictive modeling, and automated workflows`, is_correct: true },
-          { id: `${cleanSlug}-q5-b`, question_id: `${cleanSlug}-q5`, option_text: `Manual drafting with pencil and tracing paper exclusively`, is_correct: false },
-          { id: `${cleanSlug}-q5-c`, question_id: `${cleanSlug}-q5`, option_text: `Elimination of computing devices from professional practice`, is_correct: false },
-          { id: `${cleanSlug}-q5-d`, question_id: `${cleanSlug}-q5`, option_text: `Unregulated decentralized paper registries`, is_correct: false },
-        ],
-      },
-    ] as Question[];
+  const techTemplates = [
+    {
+      q: `What is the core paradigm and primary operational model of ${title}?`,
+      correct: `Efficient, modular architecture and industry-standard computational execution in ${title}`,
+      distractors: [
+        `Exclusive low-level firmware binary patching without abstraction`,
+        `Uncompiled runtime RAM buffering exclusively without state`,
+        `Monolithic unversioned storage procedures only`,
+      ],
+      diff: 'easy' as const,
+    },
+    {
+      q: `Which best practice is crucial when structuring production systems in ${title}?`,
+      correct: `Clean separation of concerns, defensive error handling, and automated unit testing`,
+      distractors: [
+        `Consistently relying on global mutable state variables across modules`,
+        `Disabling type checks and suppression of runtime exceptions`,
+        `Embedding unencrypted API keys and connection secrets in client code`,
+      ],
+      diff: 'medium' as const,
+    },
+    {
+      q: `How are concurrency and asynchronous workloads safely handled in ${title}?`,
+      correct: `Via event loops, promises/futures, or managed worker thread pools with mutex locking`,
+      distractors: [
+        `By deliberately blocking the main execution thread during long I/O operations`,
+        `Through continuous busy-wait while-true loops without sleep intervals`,
+        `By bypassing operating system scheduling entirely`,
+      ],
+      diff: 'medium' as const,
+    },
+    {
+      q: `What is a critical cybersecurity consideration when building services with ${title}?`,
+      correct: `Rigorous input validation, least-privilege access control, and rapid CVE patch adoption`,
+      distractors: [
+        `Directly concatenating unvalidated raw client input into database queries`,
+        `Disabling HTTPS encryption and cross-origin security headers for convenience`,
+        `Storing plain-text passwords without salt or cryptographic hashing`,
+      ],
+      diff: 'hard' as const,
+    },
+    {
+      q: `Which performance optimization technique yields the greatest impact in ${title}?`,
+      correct: `Minimizing time complexity (Big-O), optimizing memory allocations, and leveraging cache tiers`,
+      distractors: [
+        `Reducing the length of descriptive variable and function names in source files`,
+        `Adding excessive logging statements inside high-frequency inner loops`,
+        `Increasing thread count indefinitely beyond physical hardware CPU core limits`,
+      ],
+      diff: 'medium' as const,
+    },
+    {
+      q: `How should exception handling and error resilience be implemented in ${title}?`,
+      correct: `Using structured try-catch blocks with granular error categorization and graceful degradation`,
+      distractors: [
+        `Silently swallowing all runtime errors with empty catch handlers`,
+        `Terminating the entire application process immediately on any warning`,
+        `Allowing uncaught exceptions to expose raw internal stack traces to end users`,
+      ],
+      diff: 'medium' as const,
+    },
+    {
+      q: `When integrating persistent storage or database transactions in ${title}, what principle ensures consistency?`,
+      correct: `Adherence to ACID transactions or eventual consistency patterns with atomic commit operations`,
+      distractors: [
+        `Writing records directly to disk cache without write-ahead logging`,
+        `Ignoring database foreign key constraints to increase write throughput`,
+        `Performing multi-table mutations without rollback mechanisms on failure`,
+      ],
+      diff: 'hard' as const,
+    },
+    {
+      q: `What role does automated unit and integration testing play in ${title} development lifecycle?`,
+      correct: `Guarantees regression safety, validates business requirements, and accelerates CI/CD pipelines`,
+      distractors: [
+        `Slows down deployment velocity with no tangible benefit to code stability`,
+        `Eliminates the requirement for code review and production telemetry`,
+        `Guarantees that software will never encounter runtime hardware bottlenecks`,
+      ],
+      diff: 'easy' as const,
+    },
+    {
+      q: `Which approach is considered standard for managing dependencies and libraries in ${title}?`,
+      correct: `Locking exact package versions via dependency manifests to ensure reproducible builds`,
+      distractors: [
+        `Manually copying third-party library files into arbitrary system paths without tracking`,
+        `Always using wildcards to pull unstable latest nightly releases in production`,
+        `Disabling checksum verification during package installation`,
+      ],
+      diff: 'easy' as const,
+    },
+    {
+      q: `How does memory management and resource reclamation function within ${title} runtimes?`,
+      correct: `Through automatic generational garbage collection, reference counting, or deterministic RAII scopes`,
+      distractors: [
+        `Allocating memory indefinitely without reclaiming unreferenced objects`,
+        `Forcing manual byte-level heap manipulation on every variable assignment`,
+        `Operating systems completely prohibit dynamic heap memory allocations in ${title}`,
+      ],
+      diff: 'hard' as const,
+    },
+  ];
+
+  const nonTechTemplates = [
+    {
+      q: `What is the primary objective and fundamental methodology of ${title}?`,
+      correct: `Systematic problem-solving, quality optimization, and industry standard execution in ${title}`,
+      distractors: [
+        `Ad-hoc manual estimation without adhering to safety or regulatory frameworks`,
+        `Elimination of documentation, peer review, and verification protocols`,
+        `Relying solely on outdated legacy techniques without analytical tools`,
+      ],
+      diff: 'easy' as const,
+    },
+    {
+      q: `Which core principle is essential for maintaining high quality and efficiency in ${title}?`,
+      correct: `Standardized workflows, thorough risk assessment, and continuous iteration`,
+      distractors: [
+        `Operating without tolerance limits or measurable performance metrics`,
+        `Ignoring safety margins and international compliance guidelines`,
+        `Maximizing short-term speed by skipping critical inspection steps`,
+      ],
+      diff: 'medium' as const,
+    },
+    {
+      q: `How do professionals in ${title} effectively evaluate and mitigate operational risks?`,
+      correct: `By conducting failure mode analysis, stress testing, and structured audits`,
+      distractors: [
+        `By assuming optimal conditions and disregarding environmental variables`,
+        `Through reactive measures only after catastrophic system failure occurs`,
+        `By delegating all responsibility without documented guidelines`,
+      ],
+      diff: 'medium' as const,
+    },
+    {
+      q: `Which metric is most vital when evaluating project success and productivity in ${title}?`,
+      correct: `Yield accuracy, resource efficiency, safety compliance, and measurable ROI`,
+      distractors: [
+        `Number of theoretical meetings conducted per week`,
+        `Physical weight of printed paper documentation`,
+        `Arbitrary subjective opinions without empirical validation`,
+      ],
+      diff: 'hard' as const,
+    },
+    {
+      q: `What modern technological advancement is having the greatest transformative impact on ${title}?`,
+      correct: `Digital simulations, AI-driven predictive modeling, and automated workflows`,
+      distractors: [
+        `Manual drafting with pencil and tracing paper exclusively`,
+        `Elimination of computing devices from professional practice`,
+        `Unregulated decentralized paper registries`,
+      ],
+      diff: 'medium' as const,
+    },
+  ];
+
+  const templates = isNonTech ? nonTechTemplates : techTemplates;
+
+  let templateIndex = 0;
+  while (questions.length < count) {
+    const tmpl = templates[templateIndex % templates.length];
+    const qNum = questions.length + 1;
+    const cycle = Math.floor(templateIndex / templates.length);
+    const suffix = cycle > 0 ? ` (Advanced Concept Part ${cycle + 1})` : '';
+
+    const qId = `${cleanSlug}-q${qNum}`;
+
+    const rawOptions = [
+      { text: tmpl.correct, isCorrect: true },
+      ...tmpl.distractors.map((d) => ({ text: d, isCorrect: false })),
+    ];
+    const shuffled = [...rawOptions].sort((a, b) => {
+      const hA = (a.text.charCodeAt(0) * (qNum + 1)) % 7;
+      const hB = (b.text.charCodeAt(0) * (qNum + 1)) % 7;
+      return hA - hB;
+    });
+
+    questions.push({
+      id: qId,
+      tier_label: tmpl.diff === 'easy' ? 'Foundational' : tmpl.diff === 'medium' ? 'Core Applied' : 'Advanced Architecture',
+      question_text: tmpl.q + suffix,
+      difficulty: tmpl.diff,
+      marks: 1,
+      domain_id: domainSlug,
+      active: true,
+      display_order: qNum,
+      created_at: '',
+      updated_at: '',
+      options: shuffled.map((opt, oIdx) => ({
+        id: `${qId}-${String.fromCharCode(97 + oIdx)}`,
+        question_id: qId,
+        option_text: opt.text,
+        option_order: oIdx + 1,
+        is_correct: opt.isCorrect,
+      })),
+    });
+
+    templateIndex++;
   }
 
-  // Tech / Software questions (default)
-  return [
-    {
-      id: `${cleanSlug}-q1`,
-      question_text: `What is the core paradigm and primary use case of ${title}?`,
-      difficulty: 'easy',
-      marks: 1,
-      domain_id: domainSlug,
-      active: true,
-      display_order: 1,
-      created_at: '',
-      updated_at: '',
-      options: [
-        { id: `${cleanSlug}-q1-a`, question_id: `${cleanSlug}-q1`, option_text: `Efficient, modular development and industry standard problem-solving in ${title}`, is_correct: true },
-        { id: `${cleanSlug}-q1-b`, question_id: `${cleanSlug}-q1`, option_text: `Exclusive legacy hardware firmware replacement without abstraction`, is_correct: false },
-        { id: `${cleanSlug}-q1-c`, question_id: `${cleanSlug}-q1`, option_text: `Uncompiled runtime memory buffering exclusively`, is_correct: false },
-        { id: `${cleanSlug}-q1-d`, question_id: `${cleanSlug}-q1`, option_text: `Static linear database indexing mechanism only`, is_correct: false },
-      ],
-    },
-    {
-      id: `${cleanSlug}-q2`,
-      question_text: `Which of the following best practices is recommended when writing production-grade ${title} code?`,
-      difficulty: 'medium',
-      marks: 1,
-      domain_id: domainSlug,
-      active: true,
-      display_order: 2,
-      created_at: '',
-      updated_at: '',
-      options: [
-        { id: `${cleanSlug}-q2-a`, question_id: `${cleanSlug}-q2`, option_text: `Clean separation of concerns, robust error handling, and unit test coverage`, is_correct: true },
-        { id: `${cleanSlug}-q2-b`, question_id: `${cleanSlug}-q2`, option_text: `Relying entirely on global mutable state variables`, is_correct: false },
-        { id: `${cleanSlug}-q2-c`, question_id: `${cleanSlug}-q2`, option_text: `Disabling type checks and exception catching blocks`, is_correct: false },
-        { id: `${cleanSlug}-q2-d`, question_id: `${cleanSlug}-q2`, option_text: `Hardcoding sensitive credentials and API tokens inside codebase`, is_correct: false },
-      ],
-    },
-    {
-      id: `${cleanSlug}-q3`,
-      question_text: `In modern ${title} architecture, how are concurrency and asynchronous execution typically handled?`,
-      difficulty: 'medium',
-      marks: 1,
-      domain_id: domainSlug,
-      active: true,
-      display_order: 3,
-      created_at: '',
-      updated_at: '',
-      options: [
-        { id: `${cleanSlug}-q3-a`, question_id: `${cleanSlug}-q3`, option_text: `Through event-driven loops, promises/futures, or managed thread workers`, is_correct: true },
-        { id: `${cleanSlug}-q3-b`, question_id: `${cleanSlug}-q3`, option_text: `By freezing the main thread until synchronous I/O completes`, is_correct: false },
-        { id: `${cleanSlug}-q3-c`, question_id: `${cleanSlug}-q3`, option_text: `Concurrency is not supported in modern computing`, is_correct: false },
-        { id: `${cleanSlug}-q3-d`, question_id: `${cleanSlug}-q3`, option_text: `Through infinite while-true polling loops without delay`, is_correct: false },
-      ],
-    },
-    {
-      id: `${cleanSlug}-q4`,
-      question_text: `What is a key security consideration when deploying applications built with ${title}?`,
-      difficulty: 'hard',
-      marks: 1,
-      domain_id: domainSlug,
-      active: true,
-      display_order: 4,
-      created_at: '',
-      updated_at: '',
-      options: [
-        { id: `${cleanSlug}-q4-a`, question_id: `${cleanSlug}-q4`, option_text: `Sanitizing all user inputs, enforcing least privilege, and patching dependency vulnerabilities`, is_correct: true },
-        { id: `${cleanSlug}-q4-b`, question_id: `${cleanSlug}-q4`, option_text: `Exposing database connection strings to client-side code`, is_correct: false },
-        { id: `${cleanSlug}-q4-c`, question_id: `${cleanSlug}-q4`, option_text: `Disabling HTTPS and CORS validation headers`, is_correct: false },
-        { id: `${cleanSlug}-q4-d`, question_id: `${cleanSlug}-q4`, option_text: `Storing plain-text passwords without salt or hashing`, is_correct: false },
-      ],
-    },
-    {
-      id: `${cleanSlug}-q5`,
-      question_text: `Which metric is most crucial when optimizing runtime performance in ${title}?`,
-      difficulty: 'medium',
-      marks: 1,
-      domain_id: domainSlug,
-      active: true,
-      display_order: 5,
-      created_at: '',
-      updated_at: '',
-      options: [
-        { id: `${cleanSlug}-q5-a`, question_id: `${cleanSlug}-q5`, option_text: `Algorithmic time complexity (Big-O) and efficient memory footprint`, is_correct: true },
-        { id: `${cleanSlug}-q5-b`, question_id: `${cleanSlug}-q5`, option_text: `Number of characters in the variable names`, is_correct: false },
-        { id: `${cleanSlug}-q5-c`, question_id: `${cleanSlug}-q5`, option_text: `Color palette of the user terminal`, is_correct: false },
-        { id: `${cleanSlug}-q5-d`, question_id: `${cleanSlug}-q5`, option_text: `The file size of static comment lines`, is_correct: false },
-      ],
-    },
-  ] as Question[];
+  return questions.slice(0, count);
 }

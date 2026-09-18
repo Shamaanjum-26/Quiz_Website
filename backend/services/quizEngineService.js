@@ -154,6 +154,18 @@ async function generateAndStoreDomainBank(domainId, domainNameOverride = null, a
   const newQuestions = await generateDomainQuestionsWithGemini(domainName, existingTexts, apiKey);
 
   if (newQuestions.length === 0) {
+    if (existingTexts.length >= 10) {
+      console.log(`[QuizEngine] Question bank for "${domainName}" is already populated with ${existingTexts.length} unique questions.`);
+      return {
+        success: true,
+        domainId,
+        domainName,
+        generated: 0,
+        saved: 0,
+        totalExisting: existingTexts.length,
+        message: 'Question bank is already fully populated.'
+      };
+    }
     throw new Error(`Failed to generate any new unique questions for domain "${domainName}".`);
   }
 
@@ -245,6 +257,7 @@ function cleanQuestionText(text) {
 async function startQuizAttempt(studentId, domainId) {
   const config = await getQuizConfig();
   const maxAttempts = config.max_attempts || 3;
+  const hasGeminiKey = !!(config.gemini_api_key || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY);
 
   // UUID validation: ensure studentId is valid hex UUID for DB
   const validStudentId = isValidUuid(studentId) ? studentId : '9bf23b8a-9669-4070-9871-1fdf9f84ca15';
@@ -330,11 +343,11 @@ async function startQuizAttempt(studentId, domainId) {
     } catch (genErr) {
       console.warn('[QuizEngine] Auto-generation error:', genErr.message);
     }
-  } else if (allQuestions.length < 30 || unseenEasy.length < 10 || unseenMedium.length < 10 || unseenHard.length < 10) {
+  } else if (hasGeminiKey && (allQuestions.length < 30 || unseenEasy.length < 10 || unseenMedium.length < 10 || unseenHard.length < 10)) {
     // Non-blocking background refill so student starts quiz instantly
     console.log(`[QuizEngine] Background auto-refill triggered for domain ${validDomainId} (Current: ${allQuestions.length} questions)...`);
     generateAndStoreDomainBank(validDomainId).catch(err => {
-      console.warn('[QuizEngine] Background auto-refill warning:', err.message);
+      console.warn('[QuizEngine] Background auto-refill note:', err.message);
     });
   }
 
@@ -559,19 +572,38 @@ async function submitQuizAttempt(attemptId, studentId, answers) {
       headers: { 'Prefer': 'resolution=merge-duplicates' },
       body: [resultPayload]
     }),
-    // Update leads table with quiz completion status and high intent score
-    supabaseFetch(`leads?student_id=eq.${studentId}`, {
-      method: 'PATCH',
-      body: {
-        has_completed_quiz: true,
-        has_viewed_result: true,
-        lead_score: Math.min(100, Math.max(50, percentage + 20)),
-        lead_status: percentage >= 50 ? 'HOT' : 'WARM',
-        qualification_reason: `High Intent: completed assessment (${percentage}%), scored ${skillLevel} level`,
-        last_activity_at: now.toISOString(),
-        updated_at: now.toISOString()
+    // Upsert leads table with quiz completion status and high intent score
+    (async () => {
+      try {
+        await supabaseFetch('leads?on_conflict=student_id', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=merge-duplicates' },
+          body: [{
+            student_id: studentId,
+            has_completed_quiz: true,
+            has_viewed_result: true,
+            lead_score: Math.min(100, Math.max(50, percentage + 20)),
+            lead_status: percentage >= 50 ? 'HOT' : 'WARM',
+            qualification_reason: `High Intent: completed assessment (${percentage}%), scored ${skillLevel} level`,
+            last_activity_at: now.toISOString(),
+            updated_at: now.toISOString()
+          }]
+        });
+      } catch {
+        await supabaseFetch(`leads?student_id=eq.${studentId}`, {
+          method: 'PATCH',
+          body: {
+            has_completed_quiz: true,
+            has_viewed_result: true,
+            lead_score: Math.min(100, Math.max(50, percentage + 20)),
+            lead_status: percentage >= 50 ? 'HOT' : 'WARM',
+            qualification_reason: `High Intent: completed assessment (${percentage}%), scored ${skillLevel} level`,
+            last_activity_at: now.toISOString(),
+            updated_at: now.toISOString()
+          }
+        }).catch(() => {});
       }
-    })
+    })()
   ];
 
   if (answersToInsert.length > 0) {

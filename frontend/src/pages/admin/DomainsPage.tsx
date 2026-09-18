@@ -228,7 +228,7 @@ export default function AdminDomainsPage() {
                       alt={domain.name || 'Domain'}
                       className="w-full h-full object-contain"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = '/domains/default.svg';
+                        (e.target as HTMLImageElement).src = '/domains/default.png';
                       }}
                     />
                   </div>

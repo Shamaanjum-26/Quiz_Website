@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface AnimatedCounterProps {
   value: number | string;
@@ -10,7 +10,7 @@ interface AnimatedCounterProps {
 
 export function AnimatedCounter({
   value,
-  duration = 800,
+  duration = 400,
   className = '',
   prefix = '',
   suffix = '',
@@ -19,13 +19,27 @@ export function AnimatedCounter({
   const numericValue = typeof value === 'number' ? value : parseFloat(String(value).replace(/[^0-9.-]+/g, ''));
   const isNumeric = !isNaN(numericValue);
 
-  const [displayValue, setDisplayValue] = useState<number>(0);
+  const [displayValue, setDisplayValue] = useState<number>(() => isNumeric ? numericValue : 0);
+  const prevRef = useRef<number>(isNumeric ? numericValue : 0);
+  const isFirstMount = useRef(true);
 
   useEffect(() => {
     if (!isNumeric) return;
 
-    let start = 0;
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      setDisplayValue(numericValue);
+      prevRef.current = numericValue;
+      return;
+    }
+
+    const start = prevRef.current;
     const end = numericValue;
+    if (start === end) {
+      setDisplayValue(end);
+      return;
+    }
+
     const startTime = performance.now();
 
     const updateCount = (currentTime: number) => {
@@ -41,11 +55,15 @@ export function AnimatedCounter({
         requestAnimationFrame(updateCount);
       } else {
         setDisplayValue(end);
+        prevRef.current = end;
       }
     };
 
     const frameId = requestAnimationFrame(updateCount);
-    return () => cancelAnimationFrame(frameId);
+    return () => {
+      cancelAnimationFrame(frameId);
+      prevRef.current = end;
+    };
   }, [numericValue, duration, isNumeric]);
 
   if (!isNumeric) {

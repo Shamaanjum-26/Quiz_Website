@@ -100,7 +100,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
                 alt="Logo"
                 className="w-5 h-5 object-contain"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = '/domains/default.svg';
+                  (e.target as HTMLImageElement).src = '/domains/default.png';
                 }}
               />
             </div>
@@ -368,24 +368,6 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
           <div className="flex items-center gap-2.5 sm:gap-3">
             {/* Custom page action slots */}
             {actions}
-
-            {/* Live System Indicator */}
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200/70 text-xs text-slate-600 font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Portal Live</span>
-            </div>
-
-            {/* Quick Profile Pill on Desktop */}
-            <div className="flex items-center pl-2 border-l border-slate-200/70">
-              <button
-                onClick={handleSignOut}
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-rose-50 text-slate-600 hover:text-rose-700 text-xs font-medium transition-colors"
-                title="Sign out of Admin Portal"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Sign Out</span>
-              </button>
-            </div>
           </div>
         </header>
 

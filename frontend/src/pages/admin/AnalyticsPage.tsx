@@ -68,7 +68,7 @@ export default function AdminAnalyticsPage({ defaultPeriod }: AdminAnalyticsPage
     setSearchParams({ period: newPeriod });
   };
 
-  const loadAnalytics = useCallback(async () => {
+  const loadAnalytics = useCallback(async (isSilent = false) => {
     if (!isSupabaseConfigured) {
       try {
         const rawStudents = localStorage.getItem('hadescore_local_students');
@@ -98,18 +98,21 @@ export default function AdminAnalyticsPage({ defaultPeriod }: AdminAnalyticsPage
           const iso = d.toISOString().slice(0, 10);
           daysMap[iso] = { count: 0, attempts: 0, bootcamp: 0 };
         }
+
         students.forEach((s: any) => {
           if (s.created_at) {
-            const k = s.created_at.slice(0, 10);
-            if (daysMap[k]) daysMap[k].count++;
+            const iso = s.created_at.slice(0, 10);
+            if (daysMap[iso]) daysMap[iso].count++;
           }
         });
+
         leads.forEach((l: any) => {
-          if (l.created_at) {
-            const k = l.created_at.slice(0, 10);
-            if (daysMap[k]) {
-              if (l.has_completed_quiz) daysMap[k].attempts++;
-              if (l.has_registered_bootcamp) daysMap[k].bootcamp++;
+          const dateStr = l.last_activity_at || l.created_at;
+          if (dateStr) {
+            const iso = dateStr.slice(0, 10);
+            if (daysMap[iso]) {
+              if (l.has_completed_quiz || l.session_count > 0) daysMap[iso].attempts++;
+              if (l.has_registered_bootcamp) daysMap[iso].bootcamp++;
             }
           }
         });
@@ -133,12 +136,35 @@ export default function AdminAnalyticsPage({ defaultPeriod }: AdminAnalyticsPage
       return;
     }
     try {
-      setIsLiveSyncing(true);
+      if (!isSilent) setIsLiveSyncing(true);
       const data = period === 'daily' 
         ? await getDailyAnalyticsData(7)
         : await getMonthlyAnalyticsData(6);
 
       if (data) {
+        if (data.milestones.total_students === 0) {
+          try {
+            const rawStudents = localStorage.getItem('hadescore_local_students');
+            const localStudents = rawStudents ? JSON.parse(rawStudents) : [];
+            const rawLeads = localStorage.getItem('hadescore_local_leads');
+            const localLeads = rawLeads ? JSON.parse(rawLeads) : [];
+            if (localStudents.length > 0 || localLeads.length > 0) {
+              const totalSt = localStudents.length;
+              const att = localLeads.filter((l: any) => l.has_completed_quiz || (l.session_count && l.session_count > 0)).length;
+              const rep = localLeads.filter((l: any) => l.has_completed_quiz).length;
+              const bc = localLeads.filter((l: any) => l.has_registered_bootcamp).length;
+              data.milestones = {
+                total_students: totalSt,
+                quiz_attempts: att,
+                reports_generated: rep,
+                bootcamp_enrolled: bc,
+                activation_rate: totalSt > 0 ? ((att / totalSt) * 100).toFixed(1) + '%' : '0.0%',
+                completion_rate: att > 0 ? ((rep / att) * 100).toFixed(1) + '%' : '0.0%',
+                conversion_rate: totalSt > 0 ? ((bc / totalSt) * 100).toFixed(1) + '%' : '0.0%',
+              };
+            }
+          } catch {}
+        }
         setMilestones(data.milestones);
         setChartData(data.chartData);
         setDomainStats(data.domainStats);
@@ -147,39 +173,35 @@ export default function AdminAnalyticsPage({ defaultPeriod }: AdminAnalyticsPage
     } catch (err) {
       console.error('Failed to load live analytics:', err);
     } finally {
-      setIsLiveSyncing(false);
+      if (!isSilent) setIsLiveSyncing(false);
     }
   }, [period]);
 
   useEffect(() => {
-    loadAnalytics();
+    loadAnalytics(false);
 
-    // Supabase Real-Time subscription for instant updates on all tables
+    // Supabase Real-Time subscription for instant updates on all tables (silent)
     const channel = supabase
       .channel('admin-analytics-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
-        loadAnalytics();
+        loadAnalytics(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_attempts' }, () => {
-        loadAnalytics();
+        loadAnalytics(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_results' }, () => {
-        loadAnalytics();
+        loadAnalytics(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bootcamp_registrations' }, () => {
-        loadAnalytics();
+        loadAnalytics(true);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-        loadAnalytics();
+        loadAnalytics(true);
       })
       .subscribe();
 
-    // Heartbeat sync every 8 seconds
-    const interval = setInterval(loadAnalytics, 8000);
-
     return () => {
       supabase.removeChannel(channel);
-      clearInterval(interval);
     };
   }, [loadAnalytics]);
 

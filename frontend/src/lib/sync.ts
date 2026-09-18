@@ -32,7 +32,6 @@ export function subscribeToDataChanges(callback: () => void): () => void {
   if (typeof window !== 'undefined') {
     window.addEventListener('hadescore_data_updated', handleEvent);
     window.addEventListener('storage', handleStorage);
-    window.addEventListener('focus', handleEvent);
   }
 
   return () => {
@@ -42,7 +41,6 @@ export function subscribeToDataChanges(callback: () => void): () => void {
     if (typeof window !== 'undefined') {
       window.removeEventListener('hadescore_data_updated', handleEvent);
       window.removeEventListener('storage', handleStorage);
-      window.removeEventListener('focus', handleEvent);
     }
   };
 }

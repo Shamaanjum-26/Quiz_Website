@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Search,
@@ -6,9 +6,7 @@ import {
   Flame,
   Thermometer,
   Droplets,
-  MessageSquare,
   Loader2,
-  Calendar,
   User,
   X,
   CheckCircle,
@@ -16,7 +14,6 @@ import {
   Send,
   AlertTriangle,
   Clock,
-  ArrowUpDown,
   Filter,
   Check,
   ExternalLink,
@@ -28,7 +25,6 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
-import { subscribeToDataChanges } from '@/lib/sync';
 import { AdminTableSkeleton } from '@/components/admin/AdminTableSkeleton';
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState';
 import {
@@ -235,21 +231,20 @@ export default function AdminLeadsPage() {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<LeadStatus | 'ALL' | 'QUIZ_COMPLETED'>('ALL');
   const [search, setSearch] = useState(domainParam || campaignParam || '');
-  const [selectedDate, setSelectedDate] = useState<string>('');
-  const [quickDate, setQuickDate] = useState<'all' | 'today' | 'yesterday' | '7days'>('all');
-  const [noteModal, setNoteModal] = useState<{ leadId: string; current: string } | null>(null);
-  const [noteText, setNoteText] = useState('');
   const [exporting, setExporting] = useState(false);
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
-  const [sortByDays, setSortByDays] = useState<'asc' | 'desc' | null>(null);
   const [statusAnimationId, setStatusAnimationId] = useState<string | null>(null);
   const [deleteLeadConfirm, setDeleteLeadConfirm] = useState<Lead | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteAllModal, setConfirmDeleteAllModal] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const initialLoadedRef = useRef(false);
+
+  const load = useCallback(async (isSilent = false) => {
+    if (!isSilent && !initialLoadedRef.current) {
+      setLoading(true);
+    }
     const filters: LeadFilters = {
       search: search || undefined,
       status: activeFilter !== 'ALL' && activeFilter !== 'QUIZ_COMPLETED' ? activeFilter : undefined,
@@ -267,47 +262,15 @@ export default function AdminLeadsPage() {
       setLeads(fallback?.data || []);
       setTotal(fallback?.total || 0);
     } finally {
-      setLoading(false);
+      initialLoadedRef.current = true;
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, [activeFilter, search]);
 
   useEffect(() => {
-    load();
-
-    // 1. Cross-tab and local real-time listener (updates instantaneously in 0ms)
-    const unsubscribeSync = subscribeToDataChanges(() => {
-      load();
-    });
-
-    // 2. Supabase Realtime channel subscription for live updates from any user
-    let channel: any = null;
-    if (isSupabaseConfigured) {
-      channel = supabase
-        .channel('admin-leads-realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => {
-          load();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
-          load();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_results' }, () => {
-          load();
-        })
-        .subscribe();
-    }
-
-    // 3. Fallback heartbeat polling every 4 seconds
-    const interval = setInterval(() => {
-      load();
-    }, 4000);
-
-    return () => {
-      unsubscribeSync();
-      clearInterval(interval);
-      if (channel) {
-        supabase.removeChannel(channel);
-      }
-    };
+    load(false);
   }, [load]);
 
   // Duplicate Lead Detection Algorithm
@@ -379,15 +342,6 @@ export default function AdminLeadsPage() {
       }
     } catch {}
     setTimeout(() => setStatusAnimationId(null), 1200);
-  };
-
-  const handleSaveNote = async () => {
-    if (!noteModal) return;
-    await updateLead(noteModal.leadId, { admin_notes: noteText });
-    setLeads((prev) =>
-      prev.map((l) => (l.id === noteModal.leadId ? { ...l, admin_notes: noteText } : l))
-    );
-    setNoteModal(null);
   };
 
   const handleExport = async () => {
@@ -482,70 +436,13 @@ export default function AdminLeadsPage() {
       });
     }
 
-    // Calendar & Quick Date filter
-    const todayYMD = new Date().toISOString().slice(0, 10);
-    const yesterdayYMD = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-
-    if (selectedDate) {
-      list = list.filter((l) => {
-        const leadDate = l.created_at || l.last_activity_at;
-        if (!leadDate) return false;
-        try {
-          return new Date(leadDate).toISOString().slice(0, 10) === selectedDate;
-        } catch {
-          return false;
-        }
-      });
-    } else if (quickDate === 'today') {
-      list = list.filter((l) => {
-        const leadDate = l.created_at || l.last_activity_at;
-        if (!leadDate) return false;
-        try {
-          return new Date(leadDate).toISOString().slice(0, 10) === todayYMD;
-        } catch {
-          return false;
-        }
-      });
-    } else if (quickDate === 'yesterday') {
-      list = list.filter((l) => {
-        const leadDate = l.created_at || l.last_activity_at;
-        if (!leadDate) return false;
-        try {
-          return new Date(leadDate).toISOString().slice(0, 10) === yesterdayYMD;
-        } catch {
-          return false;
-        }
-      });
-    } else if (quickDate === '7days') {
-      list = list.filter((l) => {
-        const leadDate = l.created_at || l.last_activity_at;
-        if (!leadDate) return false;
-        try {
-          const diff = Date.now() - new Date(leadDate).getTime();
-          return diff >= 0 && diff <= 7 * 86400000;
-        } catch {
-          return false;
-        }
-      });
-    }
-
-    if (sortByDays) {
-      list = [...list].sort((a, b) => {
-        const aDate = new Date(a.last_activity_at || a.created_at).getTime();
-        const bDate = new Date(b.last_activity_at || b.created_at).getTime();
-        return sortByDays === 'asc' ? aDate - bDate : bDate - aDate;
-      });
-    }
-
     return list;
-  }, [leads, activeFilter, showDuplicatesOnly, search, selectedDate, quickDate, sortByDays, duplicateLeadIds]);
+  }, [leads, activeFilter, showDuplicatesOnly, search, duplicateLeadIds]);
 
-  const quizCompletedCount = leads.filter((l) => l.has_completed_quiz).length;
-  const hotCount = leads.filter((l) => l.lead_status === 'HOT').length;
-  const warmCount = leads.filter((l) => l.lead_status === 'WARM').length;
-  const nurtureCount = leads.filter((l) => l.lead_status === 'NURTURE').length;
-  const unenrolledCount = leads.filter((l) => !l.has_registered_bootcamp).length;
-
+  const quizCompletedCount = useMemo(() => leads.filter((l) => l.has_completed_quiz).length, [leads]);
+  const hotCount = useMemo(() => leads.filter((l) => l.lead_status === 'HOT').length, [leads]);
+  const warmCount = useMemo(() => leads.filter((l) => l.lead_status === 'WARM').length, [leads]);
+  const nurtureCount = useMemo(() => leads.filter((l) => l.lead_status === 'NURTURE').length, [leads]);
 
   return (
     <AdminLayout
@@ -578,56 +475,6 @@ export default function AdminLeadsPage() {
         </div>
       }
     >
-      {/* ── Summary Stats Row ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        {[
-          {
-            label: 'Total Leads',
-            value: leads.length,
-            sub: 'All pipeline',
-            gradient: 'from-slate-100 to-slate-50',
-            border: 'border-slate-200',
-            textColor: 'text-slate-800',
-            subColor: 'text-slate-500',
-          },
-          {
-            label: 'High Intent',
-            value: hotCount,
-            sub: 'Priority candidates',
-            gradient: 'from-emerald-50 to-white',
-            border: 'border-emerald-200/70',
-            textColor: 'text-emerald-700',
-            subColor: 'text-emerald-500',
-          },
-          {
-            label: 'Quiz Completed',
-            value: leads.filter((l) => l.has_completed_quiz).length,
-            sub: 'Assessments done',
-            gradient: 'from-indigo-50 to-white',
-            border: 'border-indigo-200/70',
-            textColor: 'text-indigo-700',
-            subColor: 'text-indigo-400',
-          },
-          {
-            label: 'Enrolled',
-            value: leads.filter((l) => l.has_registered_bootcamp).length,
-            sub: 'Bootcamp registrations',
-            gradient: 'from-amber-50 to-white',
-            border: 'border-amber-200/70',
-            textColor: 'text-amber-700',
-            subColor: 'text-amber-400',
-          },
-        ].map((stat) => (
-          <div
-            key={stat.label}
-            className={`bg-gradient-to-br ${stat.gradient} border ${stat.border} rounded-2xl px-4 py-3.5 flex flex-col gap-0.5`}
-          >
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{stat.label}</span>
-            <span className={`text-2xl font-black ${stat.textColor} leading-none`}>{stat.value}</span>
-            <span className={`text-[10px] ${stat.subColor} font-medium`}>{stat.sub}</span>
-          </div>
-        ))}
-      </div>
 
       {/* Active URL Filter Indicator if drilled down from Dashboard/Campaigns */}
       {(domainParam || campaignParam) && (
@@ -657,9 +504,9 @@ export default function AdminLeadsPage() {
       )}
 
       {/* Filter Tabs & Search Controls */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
-        {/* Animated Sliding Status Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/60 overflow-x-auto relative">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-5">
+        {/* Clean Status Tabs (No Scrollbar, Neat & Responsive) */}
+        <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100/90 rounded-2xl border border-slate-200/70">
           {[
             { key: 'ALL', label: 'All Leads', count: total },
             { key: 'QUIZ_COMPLETED', label: 'Quiz Submitted', count: quizCompletedCount, dot: 'bg-emerald-500' },
@@ -672,16 +519,12 @@ export default function AdminLeadsPage() {
               <button
                 key={tab.key}
                 onClick={() => setActiveFilter(tab.key as any)}
-                className={`relative px-4 py-2 rounded-xl text-xs font-semibold transition-colors duration-150 whitespace-nowrap flex items-center gap-2 z-10 ${
-                  isActive ? 'text-slate-900' : 'text-slate-600 hover:text-slate-900'
+                className={`relative px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 ${
+                  isActive
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
                 }`}
               >
-                {isActive && (
-                  <div
-                    className="absolute inset-0 bg-white rounded-xl shadow-xs -z-10 transition-all duration-200"
-                  />
-                )}
-
                 {tab.dot && <span className={`w-2 h-2 rounded-full ${tab.dot}`} />}
                 <span>{tab.label}</span>
                 <span
@@ -696,84 +539,15 @@ export default function AdminLeadsPage() {
           })}
         </div>
 
-        {/* Search Input, Calendar Picker & Quick Date Filters */}
-        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-          {/* Calendar Date Picker */}
-          <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200 text-xs">
-            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => {
-                setSelectedDate(e.target.value);
-                setQuickDate('all');
-              }}
-              className="bg-transparent text-xs text-slate-700 font-semibold focus:outline-none cursor-pointer"
-              title="Filter leads by date"
-            />
-            {selectedDate && (
-              <button
-                onClick={() => setSelectedDate('')}
-                className="p-0.5 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 transition-colors"
-                title="Clear date filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          {/* Quick Date Pills */}
-          <div className="flex items-center gap-1 bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
-            {[
-              { id: 'all', label: 'All Dates' },
-              { id: 'today', label: 'Today' },
-              { id: 'yesterday', label: 'Yesterday' },
-              { id: '7days', label: 'Last 7 Days' },
-            ].map((pill) => {
-              const isActive = !selectedDate && quickDate === pill.id;
-              return (
-                <button
-                  key={pill.id}
-                  onClick={() => {
-                    setSelectedDate('');
-                    setQuickDate(pill.id as any);
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                    isActive
-                      ? 'bg-white text-emerald-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {pill.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="relative flex-1 md:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <Input
-              placeholder="Search candidate, phone, domain..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 bg-white border-slate-200/80 rounded-xl text-xs h-9 shadow-2xs focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-            />
-          </div>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setSortByDays((prev) => (prev === 'desc' ? 'asc' : prev === 'asc' ? null : 'desc'))
-            }
-            className={`rounded-xl border-slate-200/80 text-xs h-9 gap-1.5 font-medium ${
-              sortByDays ? 'bg-slate-100 text-slate-900 border-slate-300' : 'text-slate-600'
-            }`}
-            title="Sort by days since last activity"
-          >
-            <ArrowUpDown className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Staleness</span>
-          </Button>
+        {/* Clean Search Input */}
+        <div className="relative w-full sm:w-72">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Input
+            placeholder="Search candidate, phone, domain..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 bg-white border-slate-200/80 rounded-xl text-xs h-9 shadow-2xs focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 w-full"
+          />
         </div>
       </div>
 
@@ -785,7 +559,6 @@ export default function AdminLeadsPage() {
               <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-20 shadow-xs">
                 <th className="px-5 py-3.5 bg-slate-50">Candidate Information</th>
                 <th className="px-4 py-3.5 bg-slate-50">Contact</th>
-                <th className="px-4 py-3.5 bg-slate-50">Quiz Score</th>
                 <th className="px-4 py-3.5 bg-slate-50">Domain</th>
                 <th className="px-4 py-3.5 bg-slate-50">Conversion Milestones</th>
                 <th className="px-4 py-3.5 bg-slate-50">Last Activity</th>
@@ -795,13 +568,13 @@ export default function AdminLeadsPage() {
             <tbody className="divide-y divide-slate-100 text-xs">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="p-0">
-                    <AdminTableSkeleton rows={5} columns={7} />
+                  <td colSpan={6} className="p-0">
+                    <AdminTableSkeleton rows={5} columns={6} />
                   </td>
                 </tr>
               ) : filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12">
+                  <td colSpan={6} className="py-12">
                     <AdminEmptyState
                       title="No leads matching criteria"
                       description="No student prospects match the selected filter or search query."
@@ -871,45 +644,7 @@ export default function AdminLeadsPage() {
                         </div>
                       </td>
 
-                      {/* 3. Quiz Score (Actual correct/total from quiz results) */}
-                      <td className="px-4 py-3.5">
-                        {lead.has_completed_quiz ? (
-                          lead.quiz_correct_answers != null && lead.quiz_total_questions != null ? (() => {
-                            // Show actual quiz result data from DB
-                            const totalQ = lead.quiz_total_questions;
-                            const correctQ = lead.quiz_correct_answers!;
-                            const pct = Math.round((correctQ / totalQ) * 100);
-                            return (
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-baseline gap-0.5">
-                                  <span className={`text-base font-black leading-none ${
-                                    pct >= 70 ? 'text-emerald-600' : pct >= 40 ? 'text-amber-600' : 'text-rose-500'
-                                  }`}>{correctQ}</span>
-                                  <span className="text-[10px] text-slate-400 font-semibold">/{totalQ}</span>
-                                </div>
-                                <div className="w-14 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full ${
-                                      pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-400'
-                                    }`}
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                </div>
-                                <span className="text-[9px] text-slate-400 font-medium">{pct}% score</span>
-                              </div>
-                            );
-                          })() : (
-                            // Quiz done but actual score data not yet available
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[10px] font-semibold">
-                              ✓ Done
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-[11px] text-slate-400">—</span>
-                        )}
-                      </td>
-
-                      {/* 4. Domain */}
+                      {/* 3. Domain */}
                       <td className="px-4 py-3.5">
                         <span className="inline-flex px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200/60 text-[10px] font-bold truncate max-w-[110px]">
                           {student?.preferred_domain?.name || 'General'}
@@ -970,22 +705,7 @@ export default function AdminLeadsPage() {
 
                       {/* 9. Actions */}
                       <td className="px-4 py-3.5 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => {
-                              setNoteModal({ leadId: lead.id, current: lead.admin_notes || '' });
-                              setNoteText(lead.admin_notes || '');
-                            }}
-                            className={`p-1.5 rounded-xl border transition-colors ${
-                              lead.admin_notes
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'hover:bg-slate-100 text-slate-400 border-slate-200/60'
-                            }`}
-                            title={lead.admin_notes ? `Note: ${lead.admin_notes}` : 'Add Counselor Note'}
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                          </button>
-
+                        <div className="flex items-center justify-end">
                           <button
                             onClick={() => setDeleteLeadConfirm(lead)}
                             className="p-1.5 rounded-xl border border-slate-200/60 hover:border-rose-200 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors"
@@ -1009,11 +729,6 @@ export default function AdminLeadsPage() {
             <span>
               Showing <strong>{filteredLeads.length}</strong> of <strong>{leads.length}</strong> qualified leads
             </span>
-            {selectedDate && (
-              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-bold">
-                Date: {selectedDate}
-              </span>
-            )}
           </div>
           <div className="text-[11px] text-slate-400 font-medium">
             ↕ Scroll inside table to view all lead records
@@ -1021,46 +736,7 @@ export default function AdminLeadsPage() {
         </div>
       </div>
 
-      {/* Counselor Note Modal */}
-      {noteModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="font-bold text-slate-900 text-sm">Counselor Follow-Up Note</h3>
-              <button
-                onClick={() => setNoteModal(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <textarea
-              rows={4}
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl p-3 text-xs resize-none focus:ring-1 focus:ring-emerald-500 text-slate-800"
-              placeholder="Record phone call conversation, student response, or follow-up notes..."
-            />
-            <div className="flex gap-2 mt-4">
-              <Button
-                onClick={handleSaveNote}
-                size="sm"
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs h-9 font-semibold"
-              >
-                Save Note
-              </Button>
-              <Button
-                onClick={() => setNoteModal(null)}
-                variant="outline"
-                size="sm"
-                className="flex-1 rounded-xl text-xs h-9"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Delete Single Lead Confirmation Modal */}
       {deleteLeadConfirm && (

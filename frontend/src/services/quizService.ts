@@ -254,6 +254,45 @@ export async function submitQuiz(
     if (res.ok) {
       const data = await res.json();
       if (data && data.result) {
+        const pct = data.result.percentage ?? 0;
+        const skill = data.result.skillLevel || 'Proficient';
+
+        // Guaranteed frontend upsert to leads table in Supabase
+        if (isSupabaseConfigured) {
+          try {
+            await supabase.from('leads').upsert({
+              student_id: studentId,
+              has_completed_quiz: true,
+              has_viewed_result: true,
+              lead_score: Math.min(100, Math.max(50, pct + 20)),
+              lead_status: pct >= 50 ? 'HOT' : 'WARM',
+              qualification_reason: `High Intent: completed assessment (${pct}%), scored ${skill} level`,
+              last_activity_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'student_id' });
+          } catch (leadSyncErr) {
+            console.warn('[quizService] Direct lead upsert note:', leadSyncErr);
+          }
+        }
+
+        // Also update local leads cache
+        try {
+          const raw = localStorage.getItem('hadescore_local_leads');
+          if (raw) {
+            const leads = JSON.parse(raw);
+            const idx = leads.findIndex((l: any) => l.student_id === studentId);
+            if (idx >= 0) {
+              leads[idx].has_completed_quiz = true;
+              leads[idx].has_viewed_result = true;
+              leads[idx].lead_score = Math.min(100, Math.max(50, pct + 20));
+              leads[idx].lead_status = pct >= 50 ? 'HOT' : 'WARM';
+              leads[idx].qualification_reason = `High Intent: completed assessment (${pct}%), scored ${skill} level`;
+              leads[idx].last_activity_at = new Date().toISOString();
+              localStorage.setItem('hadescore_local_leads', JSON.stringify(leads));
+            }
+          }
+        } catch {}
+
         clearQuizState();
         notifyDataChange('quiz_submitted');
         return {

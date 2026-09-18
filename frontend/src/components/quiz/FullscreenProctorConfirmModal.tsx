@@ -19,10 +19,35 @@ export const FullscreenProctorConfirmModal: React.FC<FullscreenProctorConfirmMod
 }) => {
   if (!isOpen) return null;
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
     }
+
+    // Request camera and microphone immediately on user click gesture
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        let stream: MediaStream | null = null;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
+            audio: true,
+          });
+        } catch (audioErr) {
+          console.warn('Audio+Video request failed, trying video only:', audioErr);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
+            audio: false,
+          });
+        }
+        if (stream) {
+          (window as any).__prewarmedProctorStream = stream;
+        }
+      }
+    } catch (err) {
+      console.warn('Initial proctor permission notice:', err);
+    }
+
     onConfirm();
   };
 

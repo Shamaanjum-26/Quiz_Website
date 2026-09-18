@@ -6,10 +6,10 @@ export function getDomainIconPath(slug?: string, icon?: string, name?: string): 
   const combined = `${slug || ''} ${name || ''} ${icon || ''}`.toLowerCase();
 
   if (combined.includes('python') || combined.includes('py')) {
-    return '/domains/python.svg';
+    return '/domains/python.png';
   }
   if ((combined.includes('java') && !combined.includes('javascript')) || combined.includes('spring') || combined.includes('coffee')) {
-    return '/domains/java.svg';
+    return '/domains/java.png';
   }
   if (
     combined.includes('data-science') ||
@@ -19,7 +19,7 @@ export function getDomainIconPath(slug?: string, icon?: string, name?: string): 
     combined.includes('data') ||
     combined.includes('brain')
   ) {
-    return '/domains/data-science.svg';
+    return '/domains/data-science.png';
   }
   if (
     combined.includes('web') ||
@@ -27,9 +27,12 @@ export function getDomainIconPath(slug?: string, icon?: string, name?: string): 
     combined.includes('javascript') ||
     combined.includes('full-stack') ||
     combined.includes('frontend') ||
-    combined.includes('globe')
+    combined.includes('globe') ||
+    combined.includes('ui') ||
+    combined.includes('ux') ||
+    combined.includes('design')
   ) {
-    return '/domains/web-dev.svg';
+    return '/domains/web-dev.png';
   }
   if (
     combined.includes('cloud') ||
@@ -38,7 +41,7 @@ export function getDomainIconPath(slug?: string, icon?: string, name?: string): 
     combined.includes('azure') ||
     combined.includes('docker')
   ) {
-    return '/domains/cloud.svg';
+    return '/domains/cloud.png';
   }
   if (
     combined.includes('cyber') ||
@@ -46,10 +49,7 @@ export function getDomainIconPath(slug?: string, icon?: string, name?: string): 
     combined.includes('shield') ||
     combined.includes('hacking')
   ) {
-    return '/domains/cybersecurity.svg';
+    return '/domains/cybersecurity.png';
   }
-  if (combined.includes('ui') || combined.includes('ux') || combined.includes('design') || combined.includes('figma')) {
-    return '/domains/ui-ux.svg';
-  }
-  return '/domains/default.svg';
+  return '/domains/default.png';
 }

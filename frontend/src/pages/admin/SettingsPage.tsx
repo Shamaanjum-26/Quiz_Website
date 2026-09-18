@@ -1,20 +1,12 @@
 import { useState, useEffect } from 'react';
 import {
-  Settings,
   Save,
-  Key,
   Shield,
   CheckCircle2,
-  Database,
   RefreshCw,
-  BrainCircuit,
   Lock,
-  Sparkles,
-  HelpCircle,
   Eye,
   EyeOff,
-  Check,
-  AlertCircle,
   UserCheck,
   Clock,
   Award,
@@ -29,7 +21,6 @@ import {
   fetchQuizConfig,
   saveQuizConfig,
   type QuizEngineConfig,
-  DEFAULT_QUIZ_CONFIG,
 } from '@/services/quizService';
 
 export default function AdminSettingsPage() {
@@ -38,11 +29,6 @@ export default function AdminSettingsPage() {
   const [passingQuestionsStr, setPassingQuestionsStr] = useState<string>('5');
   const [quizTimerStr, setQuizTimerStr] = useState<string>('15');
   const [maxAttemptsStr, setMaxAttemptsStr] = useState<string>('1');
-
-  // Gemini AI Key
-  const [geminiApiKey, setGeminiApiKey] = useState('');
-  const [maskedKey, setMaskedKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
 
   // Admin Account & Password Change
   const [currentPassword, setCurrentPassword] = useState('');
@@ -65,13 +51,6 @@ export default function AdminSettingsPage() {
           setPassingQuestionsStr(String(pCount));
           setQuizTimerStr(String(conf.quiz_timer_minutes || 15));
           setMaxAttemptsStr(String(conf.max_attempts || 1));
-
-          if (conf.gemini_api_key_masked) {
-            setMaskedKey(conf.gemini_api_key_masked);
-          } else if (import.meta.env.VITE_GEMINI_API_KEY) {
-            const envKey = import.meta.env.VITE_GEMINI_API_KEY;
-            setMaskedKey(`••••••••••••${envKey.slice(-4)}`);
-          }
         }
       } catch (err) {
         console.warn('Config load note:', err);
@@ -112,16 +91,7 @@ export default function AdminSettingsPage() {
         max_attempts: attemptsLimit,
       };
 
-      if (geminiApiKey.trim()) {
-        payload.gemini_api_key = geminiApiKey.trim();
-      }
-
       await saveQuizConfig(payload);
-
-      if (geminiApiKey.trim()) {
-        setMaskedKey(`••••••••••••${geminiApiKey.slice(-4)}`);
-        setGeminiApiKey('');
-      }
 
       toast({
         title: 'Settings Saved & Synced Globally',
@@ -191,7 +161,7 @@ export default function AdminSettingsPage() {
   return (
     <AdminLayout
       title="Platform Settings & Quiz Rules"
-      subtitle="Configure global question counts, passing marks, attempt limits, and AI parameters across all assessment domains"
+      subtitle="Configure global question counts, passing marks, and attempt limits across all assessment domains"
       actions={
         <Button
           onClick={handleSave}
@@ -204,33 +174,6 @@ export default function AdminSettingsPage() {
       }
     >
       <div className="space-y-6 max-w-4xl">
-        {/* Supabase Status Header */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-center text-slate-700 shrink-0">
-              <Database className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-slate-900 text-sm">Database & Storage Status</h3>
-              <p className="text-xs text-slate-400">
-                {isSupabaseConfigured
-                  ? 'Connected to live Supabase Cloud Database with active RLS Security.'
-                  : 'Connected to Local Persistent Database & Demo Sync Engine.'}
-              </p>
-            </div>
-          </div>
-
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border shrink-0 ${
-              isSupabaseConfigured
-                ? 'bg-emerald-50 text-emerald-800 border-emerald-200/60'
-                : 'bg-emerald-50 text-emerald-800 border-emerald-200/60'
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-            {isSupabaseConfigured ? 'Supabase Live Connected' : 'Local Database Active'}
-          </span>
-        </div>
 
         {/* 1. SECTION 1: GLOBAL QUIZ & ASSESSMENT RULES */}
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)] overflow-hidden">
@@ -366,59 +309,7 @@ export default function AdminSettingsPage() {
           </div>
         </div>
 
-        {/* 2. SECTION 2: GOOGLE GEMINI AI QUESTION ENGINE */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)] overflow-hidden">
-          <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-cyan-50 border border-cyan-100 flex items-center justify-center text-cyan-700 shrink-0">
-                <BrainCircuit className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm">Google Gemini AI Question Generator</h3>
-                <p className="text-xs text-slate-400">Generates fresh multiple-choice questions dynamically for any technical domain</p>
-              </div>
-            </div>
-            <span className="text-[11px] font-semibold text-cyan-700 bg-cyan-50 px-2.5 py-1 rounded-full border border-cyan-200/60">
-              AI Connected
-            </span>
-          </div>
-
-          <div className="p-5 sm:p-6 space-y-4 text-xs">
-            <div className="flex items-center justify-between">
-              <Label className="text-slate-800 text-xs font-bold flex items-center gap-1.5">
-                <Key className="w-3.5 h-3.5 text-slate-500" />
-                Google Gemini API Key
-              </Label>
-              {maskedKey && (
-                <span className="text-[11px] text-emerald-700 font-mono font-semibold bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200/60">
-                  ✓ Active: {maskedKey}
-                </span>
-              )}
-            </div>
-
-            <div className="relative">
-              <Input
-                type={showKey ? 'text' : 'password'}
-                placeholder={maskedKey ? 'Enter new key to update...' : 'AQ... / AIzaSy... (Gemini API Key)'}
-                value={geminiApiKey}
-                onChange={(e) => setGeminiApiKey(e.target.value)}
-                className="pr-10 font-mono text-xs rounded-xl border-slate-200 h-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              When students select any domain or type a custom domain, Gemini AI automatically generates tailored assessment questions with explanations.
-            </p>
-          </div>
-        </div>
-
-        {/* 3. SECTION 3: ADMIN ACCOUNT SECURITY & PASSWORD CHANGE */}
+        {/* 2. SECTION 2: ADMIN ACCOUNT SECURITY & PASSWORD CHANGE */}
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)] overflow-hidden">
           <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-center text-slate-700 shrink-0">

@@ -361,6 +361,17 @@ export async function createOrGetStudent(
 
       if (updateError) throw updateError;
 
+      // Ensure lead entry exists in Supabase leads table
+      try {
+        await supabase.from('leads').upsert({
+          student_id: existing.id,
+          last_activity_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'student_id' });
+      } catch (lErr) {
+        console.warn('[studentService] Existing student lead upsert note:', lErr);
+      }
+
       persistStudentId(existing.id);
       notifyDataChange('new_student_or_lead');
       return { student: (updated || existing) as Student, isNew: false };
@@ -395,6 +406,28 @@ export async function createOrGetStudent(
     if (createError) {
       console.error('[studentService] Supabase student insert error:', createError);
       throw createError;
+    }
+
+    // Automatically create corresponding Lead record in Supabase leads table
+    try {
+      await supabase.from('leads').upsert({
+        student_id: created.id,
+        lead_score: 30,
+        lead_status: 'HOT',
+        qualification_reason: 'Direct Portal Registration',
+        has_completed_quiz: false,
+        has_viewed_result: false,
+        has_viewed_report: false,
+        has_clicked_premium_report: false,
+        has_registered_bootcamp: false,
+        has_verified_email: true,
+        has_whatsapp_opt_in: true,
+        last_activity_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'student_id' });
+    } catch (leadErr) {
+      console.warn('[studentService] Lead upsert note:', leadErr);
     }
 
     persistStudentId(created.id);
