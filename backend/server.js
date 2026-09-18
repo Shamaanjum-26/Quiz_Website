@@ -251,16 +251,6 @@ function initBackgroundAutoRefill() {
         }
       }
 
-      // 2. WhatsApp Auto-Reminders for Unenrolled Bootcamp Students
-      try {
-        log('Checking for unenrolled bootcamp candidates to deliver automated WhatsApp invitations...');
-        const waResult = await whatsappAutomation.processUnenrolledBootcampStudents();
-        if (waResult.sentCount > 0) {
-          log(`Delivered automated WhatsApp invitations to ${waResult.sentCount} unenrolled candidates.`);
-        }
-      } catch (waErr) {
-        log(`[WhatsApp Automation Note] ${waErr.message}`);
-      }
     } catch (err) {
       log(`[Background Task Error] ${err.message}`);
     }

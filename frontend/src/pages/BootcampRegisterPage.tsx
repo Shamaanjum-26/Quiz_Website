@@ -44,7 +44,7 @@ export default function BootcampRegisterPage() {
   const [preferredDate, setPreferredDate] = useState<string>(defaultDate);
   const [preferredTiming, setPreferredTiming] = useState<string>('06:00 PM - 07:00 PM');
   const [mode, setMode] = useState<'online' | 'offline'>('online');
-  const [whatsappOptIn, setWhatsappOptIn] = useState(true);
+  const whatsappOptIn = false;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const learningGoal = 'Build 2+ Portfolio Projects';
   const [resolvedBootcampId, setResolvedBootcampId] = useState(bootcampId);
@@ -287,24 +287,6 @@ export default function BootcampRegisterPage() {
 
 
 
-            {/* ── 5. WHATSAPP CONSENT ───────────────────────────── */}
-            <div className="pt-2">
-              <label className="flex items-start gap-3 p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-100 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={whatsappOptIn}
-                  onChange={(e) => setWhatsappOptIn(e.target.checked)}
-                  className="w-4 h-4 text-emerald-600 rounded mt-0.5 cursor-pointer accent-emerald-600"
-                />
-                <div className="text-xs text-emerald-950">
-                  <span className="font-bold flex items-center gap-1.5 mb-0.5">
-                    <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
-                    Instant WhatsApp Notifications & Study Group Invite
-                  </span>
-                  Receive your Zoom meeting links, live schedule alerts, and mentor code repositories directly on WhatsApp.
-                </div>
-              </label>
-            </div>
 
             {/* ── SUBMIT BUTTON ─────────────────────────────────── */}
             <Button

@@ -37,7 +37,6 @@ import {
   deleteLead,
   deleteAllLeads,
   exportLeadsCSV,
-  triggerAutomatedWhatsAppForUnenrolled,
 } from '@/services/leadService';
 import { formatRelativeTime } from '@/lib/analytics';
 import { toast } from '@/hooks/useToast';
@@ -367,50 +366,6 @@ export default function AdminLeadsPage() {
     return { days: 0, hours, label: hours > 0 ? `${hours}h ago` : 'Just now', isStale: false, isCold: false };
   };
 
-  // WhatsApp Message Generator using Official Hadescore Bootcamp Invitation Template
-  const generateWhatsAppUrl = (lead: Lead) => {
-    const student = lead.student as any;
-    if (!student?.mobile) return '#';
-
-    const cleanNumber = String(student.mobile).replace(/[^0-9]/g, '');
-    const phone = cleanNumber.length === 10 ? `91${cleanNumber}` : cleanNumber;
-    const name = student.full_name || 'Candidate';
-    const domain = student.preferred_domain?.name || 'Technology';
-
-    const d = new Date();
-    const diff = (6 - d.getDay() + 7) % 7 || 7;
-    d.setDate(d.getDate() + diff);
-    const startDate = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    const regLink = `${window.location.origin}/bootcamp/register?studentId=${student.id || ''}&domain=${encodeURIComponent(domain)}`;
-
-    const message =
-`Hi ${name} 👋
-
-Great job completing the quiz! 🎯
-
-You’ve taken the first step toward building your skills. Now it’s time to take the next one — *join our ${domain} Bootcamp* 🚀
-
-In the bootcamp, you’ll get:
-✅ Practical, hands-on learning
-✅ Guidance from experienced mentors
-✅ Real-world projects & activities
-✅ An opportunity to strengthen your career skills
-
-📅 *Bootcamp:* ${domain}
-🗓️ *Start Date:* ${startDate}
-⏰ *Time:* 7:00 PM - 9:00 PM IST
-
-Your quiz is complete, but *your bootcamp journey hasn’t started yet!*
-
-👉 *Register now:* ${regLink}
-
-Don’t miss the opportunity to take your learning to the next level. 🚀
-
-*Secure your spot today!*
-Hadescore Team`;
-
-    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-  };
 
   // Handle Status Update with Micro-Animation
   const handleStatusChange = async (leadId: string, newStatus: LeadStatus) => {
@@ -591,28 +546,6 @@ Hadescore Team`;
   const nurtureCount = leads.filter((l) => l.lead_status === 'NURTURE').length;
   const unenrolledCount = leads.filter((l) => !l.has_registered_bootcamp).length;
 
-  const [sendingAutoReminders, setSendingAutoReminders] = useState(false);
-
-  const handleRunAutoEnrollment = async () => {
-    setSendingAutoReminders(true);
-    try {
-      const res = await triggerAutomatedWhatsAppForUnenrolled();
-      toast({
-        title: 'WhatsApp Automation Dispatched',
-        description: `Delivered automated bootcamp invitations to ${res.sentCount || unenrolledCount} candidates.`,
-        variant: 'success',
-      });
-      load();
-    } catch {
-      toast({
-        title: 'WhatsApp Automation Triggered',
-        description: `Delivered automated bootcamp enrollment invitations to ${unenrolledCount} candidates.`,
-        variant: 'success',
-      });
-    } finally {
-      setSendingAutoReminders(false);
-    }
-  };
 
   return (
     <AdminLayout
@@ -888,7 +821,6 @@ Hadescore Team`;
                   const isDuplicate = duplicateLeadIds.has(lead.id);
                   const staleness = getDaysSinceLastActivity(lead.last_activity_at || lead.created_at);
                   const isAnimating = statusAnimationId === lead.id;
-                  const waLink = generateWhatsAppUrl(lead);
 
                   return (
                     <tr
@@ -1107,7 +1039,7 @@ Hadescore Team`;
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               className="w-full border border-slate-200 rounded-xl p-3 text-xs resize-none focus:ring-1 focus:ring-emerald-500 text-slate-800"
-              placeholder="Record phone call conversation, WhatsApp reply status, or student questions..."
+              placeholder="Record phone call conversation, student response, or follow-up notes..."
             />
             <div className="flex gap-2 mt-4">
               <Button

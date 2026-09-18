@@ -1,6 +1,6 @@
 import { useLocation, Link } from 'react-router-dom';
 import {
-  CheckCircle2, MessageCircle, BookOpen, ArrowRight, Award, Share2
+  CheckCircle2, Mail, BookOpen, ArrowRight, Award, Share2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Student } from '@/types';
@@ -49,7 +49,7 @@ export default function SuccessPage() {
               <ul className="space-y-2.5 text-xs sm:text-sm text-indigo-900">
                 <li className="flex items-start gap-2">
                   <span className="w-5 h-5 rounded-full bg-indigo-200/80 flex items-center justify-center text-xs font-bold text-indigo-800 shrink-0 mt-0.5">1</span>
-                  <span><strong>Check your WhatsApp & Email:</strong> Your calendar invite and Zoom joining links will be delivered before orientation.</span>
+                  <span><strong>Check your Email:</strong> Your calendar invite and Zoom joining links will be delivered before orientation.</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-5 h-5 rounded-full bg-indigo-200/80 flex items-center justify-center text-xs font-bold text-indigo-800 shrink-0 mt-0.5">2</span>
@@ -97,8 +97,8 @@ export default function SuccessPage() {
                     desc: 'Get an immediate breakdown of your strengths, weaknesses, and peer percentiles.',
                   },
                   {
-                    icon: MessageCircle,
-                    title: 'Check your email & WhatsApp',
+                    icon: Mail,
+                    title: 'Check your email inbox',
                     desc: 'Your personalized skill score and learning roadmap will be delivered directly.',
                   },
                 ].map((step) => (

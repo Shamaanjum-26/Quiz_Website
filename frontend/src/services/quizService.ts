@@ -385,11 +385,6 @@ export async function submitQuiz(
       last_activity_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, { onConflict: 'student_id' }),
-    fetch(`${BACKEND_URL}/api/automation/whatsapp/trigger`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ studentId, force: false }),
-    }).catch(() => {}),
   ]).catch(() => {});
 
   // Update local leads sync as well
