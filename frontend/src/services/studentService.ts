@@ -288,6 +288,37 @@ export function deleteAllStudentsLocally(ids?: string[]): void {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function resolveDomainUuid(domainIdOrSlug?: string | null): string | null {
+  if (!domainIdOrSlug || domainIdOrSlug === 'custom') return null;
+  if (UUID_REGEX.test(domainIdOrSlug)) return domainIdOrSlug;
+
+  const slugMap: Record<string, string> = {
+    'python': 'd0000000-0000-0000-0000-000000000001',
+    'python-development': 'd0000000-0000-0000-0000-000000000001',
+    'python-programming': 'd0000000-0000-0000-0000-000000000001',
+    'web-dev': 'd0000000-0000-0000-0000-000000000002',
+    'web-development': 'd0000000-0000-0000-0000-000000000002',
+    'full-stack-web-dev': 'd0000000-0000-0000-0000-000000000002',
+    'full-stack-web-development': 'd0000000-0000-0000-0000-000000000002',
+    'data-science': 'd0000000-0000-0000-0000-000000000003',
+    'data-science-ai': 'd0000000-0000-0000-0000-000000000003',
+    'data-science-machine-learning': 'd0000000-0000-0000-0000-000000000003',
+    'ai-ml': 'd0000000-0000-0000-0000-000000000003',
+    'java': 'd0000000-0000-0000-0000-000000000004',
+    'java-spring-boot': 'd0000000-0000-0000-0000-000000000004',
+    'java-backend-architecture': 'd0000000-0000-0000-0000-000000000004',
+    'cloud-computing': 'd0000000-0000-0000-0000-000000000005',
+    'cloud-devops': 'd0000000-0000-0000-0000-000000000005',
+    'cyber-security': 'd0000000-0000-0000-0000-000000000006',
+    'cybersecurity': 'd0000000-0000-0000-0000-000000000006',
+    'cybersecurity-ethical-hacking': 'd0000000-0000-0000-0000-000000000006',
+  };
+
+  return slugMap[domainIdOrSlug.toLowerCase()] || null;
+}
+
 // ── Create or retrieve student ────────────────────────────────
 export async function createOrGetStudent(
   data: StudentRegistrationData
@@ -296,74 +327,82 @@ export async function createOrGetStudent(
     return saveLocalStudent(data);
   }
   try {
-    // Check if student exists by email
-    const { data: existing, error: fetchError } = await supabase
+    const cleanEmail = data.email.toLowerCase().trim();
+    const cleanMobile = data.mobile?.replace(/[^0-9]/g, '').slice(-10);
+    const resolvedDomainId = resolveDomainUuid(data.preferred_domain_id);
+
+    // Check if student exists by email using limit(1) to avoid PGRST116
+    const { data: existingList, error: fetchError } = await supabase
       .from('students')
       .select('*')
-      .eq('email', data.email.toLowerCase().trim())
-      .maybeSingle();
+      .eq('email', cleanEmail)
+      .limit(1);
 
     if (fetchError) throw fetchError;
+    const existing = existingList && existingList.length > 0 ? existingList[0] : null;
 
     if (existing) {
       // Update existing student with their latest registration details
-      const { data: updated } = await supabase
+      const { data: updated, error: updateError } = await supabase
         .from('students')
         .update({
           full_name: data.full_name || existing.full_name,
-          mobile: data.mobile || existing.mobile,
+          mobile: cleanMobile || existing.mobile,
           college: data.college || existing.college,
           branch: data.branch || existing.branch,
           academic_year: data.academic_year || existing.academic_year,
           state: data.state || existing.state,
-          preferred_domain_id: data.preferred_domain_id || existing.preferred_domain_id,
+          preferred_domain_id: resolvedDomainId || existing.preferred_domain_id,
           updated_at: new Date().toISOString(),
         })
         .eq('id', existing.id)
         .select(`*, preferred_domain:domains(*)`)
         .maybeSingle();
 
+      if (updateError) throw updateError;
+
       persistStudentId(existing.id);
       notifyDataChange('new_student_or_lead');
       return { student: (updated || existing) as Student, isNew: false };
     }
 
-    // Create new student
+    // Create new student with safe columns
     const { data: created, error: createError } = await supabase
       .from('students')
       .insert({
-        ...data,
-        email: data.email.toLowerCase().trim(),
-        preferred_domain_id: data.preferred_domain_id || null,
-        linkedin_url: data.linkedin_url || null,
+        full_name: data.full_name,
+        email: cleanEmail,
+        mobile: cleanMobile,
+        college: data.college,
+        branch: data.branch,
+        academic_year: data.academic_year,
+        state: data.state,
         city: data.city || null,
         graduation_year: data.graduation_year || null,
+        preferred_domain_id: resolvedDomainId,
+        linkedin_url: data.linkedin_url || null,
+        consent: data.consent ?? true,
+        utm_source: data.utm_source || null,
+        utm_medium: data.utm_medium || null,
+        utm_campaign: data.utm_campaign || null,
+        utm_content: data.utm_content || null,
+        utm_term: data.utm_term || null,
         referral_code: data.referral_code || null,
       })
       .select()
       .single();
 
-    if (createError) throw createError;
-
-    persistStudentId(created.id);
-
-    // Create initial lead record
-    try {
-      await supabase.from('leads').upsert({
-        student_id: created.id,
-        lead_score: 5,
-        lead_status: 'NURTURE',
-        qualification_reason: 'NURTURE: initial registration',
-      }, { onConflict: 'student_id' });
-    } catch (leadErr) {
-      console.warn('[studentService] Lead insert note:', leadErr);
+    if (createError) {
+      console.error('[studentService] Supabase student insert error:', createError);
+      throw createError;
     }
 
+    persistStudentId(created.id);
     notifyDataChange('new_student_or_lead');
 
     return { student: created as Student, isNew: true };
   } catch (err) {
-    console.warn('[studentService] Supabase offline, saving student locally:', err);
+    console.warn('[studentService] Supabase student create warning, using local fallback:', err);
     return saveLocalStudent(data);
   }
 }
@@ -386,18 +425,52 @@ export async function getStudentById(id: string): Promise<Student | null> {
 
 // ── Get student by email ──────────────────────────────────────
 export async function getStudentByEmail(email: string): Promise<Student | null> {
-  if (!isSupabaseConfigured) {
-    const s = getLocalStudents().find((st) => st.email?.toLowerCase().trim() === email.toLowerCase().trim());
-    return s || null;
-  }
-  const { data, error } = await supabase
-    .from('students')
-    .select(`*, preferred_domain:domains(*)`)
-    .eq('email', email.toLowerCase().trim())
-    .maybeSingle();
+  const norm = email?.toLowerCase().trim();
+  if (!norm) return null;
 
-  if (error) throw error;
-  return data as Student | null;
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select(`*, preferred_domain:domains(*)`)
+        .eq('email', norm)
+        .limit(1);
+
+      if (!error && data && data.length > 0) {
+        return (data[0] as Student);
+      }
+    } catch (err) {
+      console.warn('[getStudentByEmail] Supabase query note:', err);
+    }
+  }
+
+  const s = getLocalStudents().find((st) => st.email?.toLowerCase().trim() === norm);
+  return s || null;
+}
+
+// ── Get student by mobile ─────────────────────────────────────
+export async function getStudentByMobile(mobile: string): Promise<Student | null> {
+  const cleanMobile = mobile?.replace(/[^0-9]/g, '').slice(-10);
+  if (!cleanMobile || cleanMobile.length < 10) return null;
+
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select(`*, preferred_domain:domains(*)`)
+        .eq('mobile', cleanMobile)
+        .limit(1);
+
+      if (!error && data && data.length > 0) {
+        return (data[0] as Student);
+      }
+    } catch (err) {
+      console.warn('[getStudentByMobile] Supabase query note:', err);
+    }
+  }
+
+  const s = getLocalStudents().find((st) => st.mobile?.replace(/[^0-9]/g, '').slice(-10) === cleanMobile);
+  return s || null;
 }
 
 // ── Admin: List students ──────────────────────────────────────
@@ -582,6 +655,7 @@ export async function deleteStudent(studentId: string): Promise<void> {
       console.warn('Supabase deleteStudent cascade note:', err);
     }
   }
+  notifyDataChange('student_deleted');
 }
 
 // ── Admin: Cascade delete all students ────────────────────────
@@ -627,4 +701,5 @@ export async function deleteAllStudents(studentIds?: string[]): Promise<void> {
       console.warn('Supabase deleteAllStudents cascade note:', err);
     }
   }
+  notifyDataChange('student_deleted');
 }

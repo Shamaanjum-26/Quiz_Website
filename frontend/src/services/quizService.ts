@@ -375,7 +375,8 @@ export async function submitQuiz(
       recommendations,
       calculated_at: new Date().toISOString(),
     }),
-    supabase.from('leads').update({
+    supabase.from('leads').upsert({
+      student_id: studentId,
       has_completed_quiz: true,
       has_viewed_result: true,
       lead_score: Math.min(100, Math.max(50, percentage + 20)),
@@ -383,7 +384,7 @@ export async function submitQuiz(
       qualification_reason: `High Intent: completed assessment (${percentage}%), scored ${skillLevel} level`,
       last_activity_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq('student_id', studentId),
+    }, { onConflict: 'student_id' }),
     fetch(`${BACKEND_URL}/api/automation/whatsapp/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -16,14 +16,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { createOrGetStudent, getStudentByEmail } from '@/services/studentService';
+import { createOrGetStudent, getStudentByEmail, getStudentByMobile } from '@/services/studentService';
 import { getDomains } from '@/services/quizService';
 import { useUTM } from '@/hooks/useUTM';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { toast } from '@/hooks/useToast';
 import { TECH_DOMAINS, type TechDomainOption } from '@/data/techDomains';
 import { FullscreenProctorConfirmModal } from '@/components/quiz/FullscreenProctorConfirmModal';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@radix-ui/react-select';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -140,50 +140,49 @@ export default function RegisterPage() {
 
     setIsLoading(true);
     try {
-      // 1. Strict 1 Attempt limit: Check if candidate email already COMPLETED/SUBMITTED the quiz
+      // 1. Strict Unique Email Enforcement:
+      // If student already exists in the system (and hasn't been deleted by admin), block registration!
       const existingStudent = await getStudentByEmail(data.email);
-      if (existingStudent && isSupabaseConfigured) {
-        const { data: pastResult } = await supabase
-          .from('quiz_results')
-          .select('id')
-          .eq('student_id', existingStudent.id)
-          .limit(1);
-
-        if (pastResult && pastResult.length > 0) {
-          toast({
-            title: '⚠️ Assessment Attempt Limit Reached',
-            description: `Candidate email '${data.email}' has already attended and submitted this assessment. Only 1 attempt is allowed per candidate.`,
-            variant: 'destructive',
-          });
-          setIsLoading(false);
-          return;
-        }
-      }
-
-      // 2. IMMEDIATELY SAVE CANDIDATE DATA TO DATABASE & LEADS!
-      // This ensures that the moment "Continue to Quiz" is clicked, student data appears in Admin immediately!
-      let studentId = 'student-' + Date.now();
-      let isNewStudent = true;
-
-      try {
-        const { student, isNew } = await createOrGetStudent({
-          ...data,
-          preferred_domain_id: targetDomainId && targetDomainId !== 'custom' ? targetDomainId : undefined,
-          linkedin_url: data.linkedin_url || undefined,
+      if (existingStudent) {
+        toast({
+          title: '⚠️ Email Already Registered',
+          description: `Candidate email '${data.email}' already exists in the system. Re-attempts with the same email are not permitted.`,
+          variant: 'destructive',
         });
-        studentId = student.id;
-        isNewStudent = isNew;
-        setIsExisting(!isNew);
-      } catch (dbErr) {
-        console.warn('Student persistence note:', dbErr);
+        setIsLoading(false);
+        return;
       }
 
-      setCreatedStudentId(studentId);
+      // 2. Strict Unique Mobile Number Enforcement:
+      // If mobile number already exists in the system (and hasn't been deleted by admin), block registration!
+      const cleanMobile = data.mobile?.replace(/[^0-9]/g, '').slice(-10);
+      const existingMobileStudent = await getStudentByMobile(cleanMobile);
+      if (existingMobileStudent) {
+        toast({
+          title: '⚠️ Mobile Number Already Registered',
+          description: `Candidate mobile number '+91 ${cleanMobile}' already exists in the system. Please use a different mobile number.`,
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // 3. IMMEDIATELY SAVE CANDIDATE DATA TO DATABASE!
+      // This ensures that the moment "Continue to Quiz" is clicked, student data appears in Admin immediately!
+      const { student, isNew } = await createOrGetStudent({
+        ...data,
+        mobile: cleanMobile,
+        preferred_domain_id: targetDomainId && targetDomainId !== 'custom' ? targetDomainId : undefined,
+        linkedin_url: data.linkedin_url || undefined,
+      });
+
+      setCreatedStudentId(student.id);
       setTargetDomainData({ id: targetDomainId, name: chosenName, slug: chosenSlug });
       setPendingFormData(data);
+      setIsExisting(!isNew);
 
       toast({
-        title: isNewStudent ? 'Details Saved! 🎉' : 'Welcome back! 👋',
+        title: isNew ? 'Details Saved! 🎉' : 'Welcome back! 👋',
         description: `Registered for ${chosenName} assessment. Starting proctored quiz...`,
         variant: 'success',
       });
@@ -192,7 +191,7 @@ export default function RegisterPage() {
       setShowProctorModal(true);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Registration failed. Please try again.';
-      toast({ title: 'Error', description: msg, variant: 'destructive' });
+      toast({ title: 'Registration Error', description: msg, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }

@@ -1,8 +1,9 @@
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import type { Lead, LeadActivity, LeadFilters, PaginatedResult } from '@/types';
 import { calculateLeadStatus, buildQualificationReason } from '@/lib/leadScoring';
-import { LOCAL_STUDENTS_KEY, DELETED_STUDENTS_KEY } from '@/services/studentService';
+import { LOCAL_STUDENTS_KEY, DELETED_STUDENTS_KEY, deleteStudent, deleteAllStudents } from '@/services/studentService';
 import { getBackendUrl } from '@/lib/apiConfig';
+import { notifyDataChange } from '@/lib/sync';
 
 export const LOCAL_LEADS_KEY = 'hadescore_local_leads';
 export const DELETED_LEADS_KEY = 'hadescore_deleted_leads';
@@ -341,41 +342,6 @@ export async function listLeads(
 
     let leads = (data || []) as Lead[];
 
-    // If leads table in DB is empty or missing students, check students table to synthesize leads
-    if (leads.length === 0) {
-      try {
-        const { data: rawStudents } = await supabase
-          .from('students')
-          .select('*, preferred_domain:domains(name, slug)')
-          .order('created_at', { ascending: false })
-          .limit(pageSize);
-
-        if (rawStudents && rawStudents.length > 0) {
-          leads = rawStudents.map((st) => ({
-            id: 'lead-' + st.id,
-            student_id: st.id,
-            lead_score: 25,
-            lead_status: 'HOT' as const,
-            qualification_reason: 'Direct Student Registration',
-            has_completed_quiz: false,
-            has_viewed_result: false,
-            has_viewed_report: false,
-            has_clicked_premium_report: false,
-            has_registered_bootcamp: false,
-            has_verified_email: true,
-            has_whatsapp_opt_in: st.whatsapp_opt_in ?? true,
-            has_multiple_sessions: false,
-            session_count: 1,
-            last_activity_at: st.created_at || new Date().toISOString(),
-            created_at: st.created_at || new Date().toISOString(),
-            updated_at: st.updated_at || new Date().toISOString(),
-            student: st,
-          }));
-        }
-      } catch (synthErr) {
-        console.warn('[listLeads] Student synthesis note:', synthErr);
-      }
-    }
 
     // Filter by search safely client-side
     if (filters.search && filters.search.trim()) {
@@ -490,15 +456,29 @@ export async function updateLead(
 }
 
 // ── Admin: Delete single lead ────────────────────────────────
-export async function deleteLead(leadId: string): Promise<void> {
+export async function deleteLead(leadId: string, studentId?: string): Promise<void> {
   // Delete locally
   deleteLeadLocally(leadId);
 
   if (isSupabaseConfigured) {
     try {
-      await supabase.from('lead_activities').delete().eq('lead_id', leadId);
-      const { error } = await supabase.from('leads').delete().eq('id', leadId);
-      if (error) throw error;
+      let targetStudentId = studentId;
+      if (!targetStudentId) {
+        const { data: leadRow } = await supabase
+          .from('leads')
+          .select('student_id')
+          .eq('id', leadId)
+          .maybeSingle();
+        targetStudentId = leadRow?.student_id;
+      }
+
+      if (targetStudentId) {
+        await deleteStudent(targetStudentId);
+      } else {
+        await supabase.from('lead_activities').delete().eq('lead_id', leadId);
+        await supabase.from('leads').delete().eq('id', leadId);
+      }
+      notifyDataChange('lead_deleted');
     } catch (err) {
       console.warn('Supabase deleteLead warning:', err);
     }
@@ -513,14 +493,21 @@ export async function deleteAllLeads(leadIds?: string[]): Promise<void> {
   if (isSupabaseConfigured) {
     try {
       if (leadIds && leadIds.length > 0) {
-        await supabase.from('lead_activities').delete().in('lead_id', leadIds);
-        const { error } = await supabase.from('leads').delete().in('id', leadIds);
-        if (error) throw error;
+        const { data: leadsRows } = await supabase
+          .from('leads')
+          .select('student_id')
+          .in('id', leadIds);
+        const studentIds = (leadsRows || []).map((l: any) => l.student_id).filter(Boolean);
+        if (studentIds.length > 0) {
+          await deleteAllStudents(studentIds);
+        } else {
+          await supabase.from('lead_activities').delete().in('lead_id', leadIds);
+          await supabase.from('leads').delete().in('id', leadIds);
+        }
       } else {
-        await supabase.from('lead_activities').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        const { error } = await supabase.from('leads').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        if (error) throw error;
+        await deleteAllStudents();
       }
+      notifyDataChange('lead_deleted');
     } catch (err) {
       console.warn('Supabase deleteAllLeads warning:', err);
     }
