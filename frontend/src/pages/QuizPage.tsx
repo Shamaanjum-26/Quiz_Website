@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import {
   Clock, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle,
-  Loader2, Send, List, X, Video, VideoOff, Mic, MicOff,
-  ShieldCheck, AlertTriangle, GripHorizontal, ShieldAlert, Lock,
+  Loader2, Send, List, X, ShieldCheck, AlertTriangle, ShieldAlert, Lock,
   LayoutGrid,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -59,194 +58,7 @@ export default function QuizPage() {
   const [isWindowFocused, setIsWindowFocused] = useState(true);
   const [screenshotAttempted, setScreenshotAttempted] = useState(false);
 
-  // ── Camera & Microphone Proctoring ─────────────────────────
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [micActive, setMicActive] = useState(false);
-  const [proctoringError, setProctoringError] = useState<string | null>(null);
-
-  const stopProctoring = useCallback(() => {
-    try {
-      if (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream) {
-        try {
-          (window as any).__prewarmedProctorStream.getTracks().forEach((track: MediaStreamTrack) => {
-            try {
-              track.stop();
-              track.enabled = false;
-            } catch {}
-          });
-        } catch {}
-        (window as any).__prewarmedProctorStream = null;
-      }
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => {
-          try {
-            track.stop();
-            track.enabled = false;
-          } catch {}
-        });
-        mediaStreamRef.current = null;
-      }
-      if (mediaStream) {
-        mediaStream.getTracks().forEach((track) => {
-          try {
-            track.stop();
-            track.enabled = false;
-          } catch {}
-        });
-        setMediaStream(null);
-      }
-      if (videoRef.current) {
-        try {
-          videoRef.current.pause();
-        } catch {}
-        videoRef.current.srcObject = null;
-      }
-      setCameraActive(false);
-      setMicActive(false);
-      if (typeof document !== 'undefined' && document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      }
-    } catch (e) {
-      console.warn('stopProctoring note:', e);
-    }
-  }, [mediaStream]);
-
-  // ── Draggable Floating Proctoring Widget ───────────────────
-  // Default position: top right (safe from Next / Previous buttons)
-  const [proctorPos, setProctorPos] = useState<{ x: number; y: number }>(() => ({
-    x: typeof window !== 'undefined' ? Math.max(16, window.innerWidth - 220) : 800,
-    y: 84,
-  }));
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef<{ startX: number; startY: number; posX: number; posY: number } | null>(null);
-
   useEffect(() => {
-    const handleResize = () => {
-      setProctorPos((pos) => ({
-        x: Math.min(pos.x, window.innerWidth - 210),
-        y: Math.min(pos.y, window.innerHeight - 180),
-      }));
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return;
-    if ((e.target as HTMLElement).closest('button')) return;
-
-    setIsDragging(true);
-    dragStartRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      posX: proctorPos.x,
-      posY: proctorPos.y,
-    };
-    try {
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    } catch {}
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging || !dragStartRef.current) return;
-    const deltaX = e.clientX - dragStartRef.current.startX;
-    const deltaY = e.clientY - dragStartRef.current.startY;
-
-    const widgetWidth = 195;
-    const widgetHeight = 175;
-    const maxX = Math.max(10, window.innerWidth - widgetWidth - 10);
-    const maxY = Math.max(10, window.innerHeight - widgetHeight - 10);
-
-    const newX = Math.max(10, Math.min(maxX, dragStartRef.current.posX + deltaX));
-    const newY = Math.max(10, Math.min(maxY, dragStartRef.current.posY + deltaY));
-
-    setProctorPos({ x: newX, y: newY });
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDragging) {
-      setIsDragging(false);
-      dragStartRef.current = null;
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {}
-    }
-  };
-
-  const setVideoElement = useCallback((el: HTMLVideoElement | null) => {
-    videoRef.current = el;
-    if (el) {
-      el.muted = true;
-      const stream = mediaStreamRef.current || (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream);
-      if (stream && stream.getTracks().some((t: MediaStreamTrack) => t.readyState === 'live')) {
-        if (el.srcObject !== stream) {
-          el.srcObject = stream;
-        }
-        el.play().catch(() => {});
-      }
-    }
-  }, []);
-
-  const requestProctoring = useCallback(async () => {
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      console.warn('[QuizPage] getUserMedia not available (requires HTTPS or localhost)');
-      setProctoringError('Camera requires HTTPS secure connection.');
-      return;
-    }
-
-    try {
-      let stream: MediaStream | null = null;
-      // Tier 1: standard 640x480 video + audio
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 640 }, height: { ideal: 480 } },
-          audio: true,
-        });
-      } catch (e1) {
-        // Tier 2: generic video + audio
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        } catch (e2) {
-          // Tier 3: video only fallback
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          } catch (e3) {
-            console.warn('[QuizPage] All media access attempts failed:', e3);
-          }
-        }
-      }
-
-      if (stream) {
-        mediaStreamRef.current = stream;
-        setMediaStream(stream);
-        const hasVideo = stream.getVideoTracks().some((t) => t.readyState === 'live');
-        const hasAudio = stream.getAudioTracks().some((t) => t.readyState === 'live');
-        setCameraActive(hasVideo);
-        setMicActive(hasAudio);
-        setProctoringError(null);
-        if (videoRef.current) {
-          videoRef.current.muted = true;
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      } else {
-        setCameraActive(false);
-        setMicActive(false);
-      }
-    } catch (err) {
-      console.warn('Camera/mic proctoring note:', err);
-      setCameraActive(false);
-      setMicActive(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    // ── Camera/Mic proctoring starts ONLY when quiz is ready (not during form or loading screen) ──
-    // requestProctoring() is intentionally NOT called here; it fires in the quiz-ready useEffect below.
-
     // Ensure fullscreen mode is requested if not already active
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
@@ -432,55 +244,6 @@ export default function QuizPage() {
       window.removeEventListener('beforeprint', handleBeforePrint);
     };
   }, []);
-
-  // ── Camera/mic proctoring: Starts IMMEDIATELY on quiz page load, stops on unmount ──
-  useEffect(() => {
-    let isCancelled = false;
-
-    const startProctoring = async () => {
-      // 1. Check if prewarmed stream from modal exists and has live tracks
-      if (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream) {
-        const prewarmed = (window as any).__prewarmedProctorStream as MediaStream;
-        (window as any).__prewarmedProctorStream = null;
-        const liveVideo = prewarmed.getVideoTracks().filter((t) => t.readyState === 'live');
-        if (liveVideo.length > 0 && !isCancelled) {
-          mediaStreamRef.current = prewarmed;
-          setMediaStream(prewarmed);
-          setCameraActive(true);
-          setMicActive(prewarmed.getAudioTracks().some((t) => t.readyState === 'live'));
-          if (videoRef.current) {
-            videoRef.current.muted = true;
-            videoRef.current.srcObject = prewarmed;
-            videoRef.current.play().catch(() => {});
-          }
-          return;
-        }
-      }
-
-      // 2. Immediately request proctoring stream (no waiting for quiz loading)
-      if (!isCancelled) {
-        await requestProctoring();
-      }
-    };
-
-    startProctoring();
-
-    // Cleanup ONLY when QuizPage actually unmounts (student navigates away or submits)
-    return () => {
-      isCancelled = true;
-      stopProctoring();
-    };
-  }, [requestProctoring, stopProctoring]);
-
-  useEffect(() => {
-    if (mediaStream && videoRef.current) {
-      videoRef.current.muted = true;
-      if (videoRef.current.srcObject !== mediaStream) {
-        videoRef.current.srcObject = mediaStream;
-      }
-      videoRef.current.play().catch(() => {});
-    }
-  }, [mediaStream]);
 
   const quiz = useQuiz(attemptId, domainSlug || '', studentId || '');
 
@@ -670,15 +433,9 @@ export default function QuizPage() {
     setSubmitting(true);
     setShowConfirm(false);
 
-    // Stop camera, mic, and fullscreen IMMEDIATELY on confirmation
-    stopProctoring();
-    // Belt-and-suspenders: stop all active media tracks directly
-    try {
-      if (navigator.mediaDevices && (navigator as any).mediaDevices?.enumerateDevices) {
-        const tracks = mediaStreamRef.current?.getTracks?.() || [];
-        tracks.forEach((t: MediaStreamTrack) => { try { t.stop(); } catch {} });
-      }
-    } catch {}
+    if (typeof document !== 'undefined' && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
 
     try {
       const totalSecs = domain?.estimated_minutes ? domain.estimated_minutes * 60 : 1800;
@@ -763,7 +520,7 @@ export default function QuizPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [studentId, attemptId, quiz.state, domain, navigate, stopProctoring, timeLeft, domainSlug]);
+  }, [studentId, attemptId, quiz.state, domain, navigate, timeLeft, domainSlug]);
 
   if (loading) {
     return (
@@ -910,6 +667,19 @@ export default function QuizPage() {
                 <LayoutGrid className="w-3.5 h-3.5 text-slate-500" />
                 {showNav ? 'Hide Questions' : 'Questions'}
               </Button>
+
+              {/* Sleek Recording Badge */}
+              <div
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-rose-50 border border-rose-200/90 text-rose-600 font-mono text-xs font-bold shadow-sm tracking-wider shrink-0 select-none"
+                title="Assessment session is active"
+                aria-label="Session active"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600" />
+                </span>
+                <span>REC</span>
+              </div>
 
               {/* Finish Quiz Button */}
               <Button
@@ -1205,84 +975,6 @@ export default function QuizPage() {
         </div>
       )}
 
-      {/* Floating Draggable Camera & Mic Proctoring Widget */}
-      <div
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        style={{
-          position: 'fixed',
-          left: `${proctorPos.x}px`,
-          top: `${proctorPos.y}px`,
-          zIndex: 50,
-          touchAction: 'none',
-        }}
-        className={cn(
-          'select-none transition-shadow',
-          isDragging ? 'cursor-grabbing shadow-2xl scale-[1.02]' : 'cursor-grab'
-        )}
-        title="Click and drag to move camera anywhere"
-      >
-        <div className="w-44 sm:w-48 bg-slate-950/95 border border-slate-700/80 rounded-2xl shadow-2xl p-2.5 backdrop-blur-md text-white">
-          {/* Top Drag Handle Header */}
-          <div className="flex items-center justify-between px-1 pb-1.5 text-[10px] text-slate-400">
-            <div className="flex items-center gap-1">
-              <GripHorizontal className="w-3.5 h-3.5 text-slate-400" />
-              <span className="font-semibold text-slate-300 text-[10px]">Drag to move</span>
-            </div>
-            {cameraActive ? (
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-950/80 text-[9px] font-bold text-emerald-400 border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                LIVE
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-800 text-[9px] font-medium text-slate-400 border border-slate-700">
-                <Loader2 className="w-2.5 h-2.5 animate-spin text-indigo-400" />
-                CONNECTING
-              </div>
-            )}
-          </div>
-
-          <div className="relative aspect-video rounded-xl overflow-hidden bg-slate-900 mb-1.5 border border-slate-800 flex items-center justify-center pointer-events-none">
-            <video
-              ref={setVideoElement}
-              autoPlay
-              playsInline
-              muted
-              onLoadedMetadata={(e) => {
-                (e.target as HTMLVideoElement).play().catch(() => {});
-              }}
-              className={cn(
-                'w-full h-full object-cover -scale-x-100',
-                !cameraActive && 'hidden'
-              )}
-            />
-            {!cameraActive && (
-              <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center bg-slate-900 text-slate-400">
-                <Loader2 className="w-5 h-5 mb-1 text-indigo-400 animate-spin" />
-                <span className="text-[10px] text-slate-300">Activating Camera...</span>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
-              <span className={cn('flex items-center gap-1 text-[10px] font-semibold', cameraActive ? 'text-emerald-400' : 'text-slate-500')}>
-                {cameraActive ? <Video className="w-3 h-3" /> : <VideoOff className="w-3 h-3 text-rose-400" />}
-                CAM
-              </span>
-              <span className={cn('flex items-center gap-1 text-[10px] font-semibold', micActive ? 'text-emerald-400' : 'text-slate-500')}>
-                {micActive ? <Mic className="w-3 h-3" /> : <MicOff className="w-3 h-3 text-rose-400" />}
-                MIC
-              </span>
-            </div>
-            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-              AI SECURE
-            </span>
-          </div>
-        </div>
-      </div>
 
       {/* Close Content Wrapper */}
       </div>

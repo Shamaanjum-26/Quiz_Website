@@ -22,7 +22,6 @@ import { useUTM } from '@/hooks/useUTM';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { toast } from '@/hooks/useToast';
 import { TECH_DOMAINS, type TechDomainOption } from '@/data/techDomains';
-import { FullscreenProctorConfirmModal } from '@/components/quiz/FullscreenProctorConfirmModal';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -35,7 +34,6 @@ export default function RegisterPage() {
   const [domainSearch, setDomainSearch] = useState('');
   const [customDomainText, setCustomDomainText] = useState('');
   const [customDomainError, setCustomDomainError] = useState(false);
-  const [showProctorModal, setShowProctorModal] = useState(false);
   const [pendingFormData, setPendingFormData] = useState<StudentRegistrationInput | null>(null);
   const [otherAcademicYearText, setOtherAcademicYearText] = useState('');
   const [otherAcademicYearError, setOtherAcademicYearError] = useState(false);
@@ -194,36 +192,24 @@ export default function RegisterPage() {
 
       toast({
         title: isNew ? 'Details Saved! 🎉' : 'Welcome back! 👋',
-        description: `Registered for ${chosenName} assessment. Starting proctored quiz...`,
+        description: `Starting ${chosenName} assessment...`,
         variant: 'success',
       });
 
-      // Show Proctor Modal for fullscreen confirmation
-      setShowProctorModal(true);
+      const sId = student.id || 'student-' + Date.now();
+      navigate(`/quiz/${chosenSlug}`, {
+        state: {
+          studentId: sId,
+          domainId: targetDomainId,
+          customDomainName: isCustomDomain ? chosenName : undefined,
+        },
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Registration failed. Please try again.';
       toast({ title: 'Registration Error', description: msg, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleConfirmedStart = () => {
-    setShowProctorModal(false);
-    const studentId = createdStudentId || 'student-' + Date.now();
-    const chosenSlug = targetDomainData?.slug || selectedDomainObj?.slug || 'python';
-    const targetDomainId = targetDomainData?.id || selectedDomainObj?.id;
-    const chosenName = targetDomainData?.name || selectedDomainObj?.name || 'Quiz';
-
-    setTimeout(() => {
-      navigate(`/quiz/${chosenSlug}`, {
-        state: {
-          studentId,
-          domainId: targetDomainId,
-          customDomainName: isCustomDomain ? chosenName : undefined,
-        },
-      });
-    }, 400);
   };
 
   return (
@@ -719,15 +705,6 @@ export default function RegisterPage() {
           </div>
         </div>
       </div>
-
-      {/* Fullscreen & Proctoring Confirmation Modal */}
-      <FullscreenProctorConfirmModal
-        isOpen={showProctorModal}
-        onClose={() => setShowProctorModal(false)}
-        onConfirm={handleConfirmedStart}
-        domainName={isCustomDomain ? customDomainText.trim() || 'Custom' : selectedDomainObj?.name || 'Skill'}
-        isLoading={isLoading}
-      />
     </div>
   );
 }
