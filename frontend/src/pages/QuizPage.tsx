@@ -72,7 +72,10 @@ export default function QuizPage() {
       if (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream) {
         try {
           (window as any).__prewarmedProctorStream.getTracks().forEach((track: MediaStreamTrack) => {
-            try { track.stop(); } catch {}
+            try {
+              track.stop();
+              track.enabled = false;
+            } catch {}
           });
         } catch {}
         (window as any).__prewarmedProctorStream = null;
@@ -81,6 +84,7 @@ export default function QuizPage() {
         mediaStreamRef.current.getTracks().forEach((track) => {
           try {
             track.stop();
+            track.enabled = false;
           } catch {}
         });
         mediaStreamRef.current = null;
@@ -89,6 +93,7 @@ export default function QuizPage() {
         mediaStream.getTracks().forEach((track) => {
           try {
             track.stop();
+            track.enabled = false;
           } catch {}
         });
         setMediaStream(null);
@@ -101,13 +106,13 @@ export default function QuizPage() {
       }
       setCameraActive(false);
       setMicActive(false);
-      if (document.fullscreenElement) {
+      if (typeof document !== 'undefined' && document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       }
     } catch (e) {
       console.warn('stopProctoring note:', e);
     }
-  }, []);
+  }, [mediaStream]);
 
   // ── Draggable Floating Proctoring Widget ───────────────────
   // Default position: top right (safe from Next / Previous buttons)
@@ -173,35 +178,45 @@ export default function QuizPage() {
 
   const setVideoElement = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
-    if (el && mediaStreamRef.current) {
-      if (el.srcObject !== mediaStreamRef.current) {
-        el.srcObject = mediaStreamRef.current;
+    if (el) {
+      el.muted = true;
+      const stream = mediaStreamRef.current || (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream);
+      if (stream && stream.getTracks().some((t: MediaStreamTrack) => t.readyState === 'live')) {
+        if (el.srcObject !== stream) {
+          el.srcObject = stream;
+        }
+        el.play().catch(() => {});
       }
-      el.play().catch(() => {});
     }
   }, []);
 
   const requestProctoring = useCallback(async () => {
-    try {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((t) => {
-          try { t.stop(); } catch {}
-        });
-        mediaStreamRef.current = null;
-      }
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      console.warn('[QuizPage] getUserMedia not available (requires HTTPS or localhost)');
+      setProctoringError('Camera requires HTTPS secure connection.');
+      return;
+    }
 
+    try {
       let stream: MediaStream | null = null;
+      // Tier 1: standard 640x480 video + audio
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
+          video: { width: { ideal: 640 }, height: { ideal: 480 } },
           audio: true,
         });
-      } catch (audioErr) {
-        console.warn('Audio+Video failed, fallback to video only:', audioErr);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
-          audio: false,
-        });
+      } catch (e1) {
+        // Tier 2: generic video + audio
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        } catch (e2) {
+          // Tier 3: video only fallback
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          } catch (e3) {
+            console.warn('[QuizPage] All media access attempts failed:', e3);
+          }
+        }
       }
 
       if (stream) {
@@ -213,13 +228,16 @@ export default function QuizPage() {
         setMicActive(hasAudio);
         setProctoringError(null);
         if (videoRef.current) {
+          videoRef.current.muted = true;
           videoRef.current.srcObject = stream;
           videoRef.current.play().catch(() => {});
         }
+      } else {
+        setCameraActive(false);
+        setMicActive(false);
       }
     } catch (err) {
       console.warn('Camera/mic proctoring note:', err);
-      setProctoringError('Camera and mic permissions required for AI proctoring.');
       setCameraActive(false);
       setMicActive(false);
     }
@@ -412,45 +430,57 @@ export default function QuizPage() {
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('beforeprint', handleBeforePrint);
+    };
+  }, []);
+
+  // ── Camera/mic proctoring: Starts IMMEDIATELY on quiz page load, stops on unmount ──
+  useEffect(() => {
+    let isCancelled = false;
+
+    const startProctoring = async () => {
+      // 1. Check if prewarmed stream from modal exists and has live tracks
+      if (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream) {
+        const prewarmed = (window as any).__prewarmedProctorStream as MediaStream;
+        (window as any).__prewarmedProctorStream = null;
+        const liveVideo = prewarmed.getVideoTracks().filter((t) => t.readyState === 'live');
+        if (liveVideo.length > 0 && !isCancelled) {
+          mediaStreamRef.current = prewarmed;
+          setMediaStream(prewarmed);
+          setCameraActive(true);
+          setMicActive(prewarmed.getAudioTracks().some((t) => t.readyState === 'live'));
+          if (videoRef.current) {
+            videoRef.current.muted = true;
+            videoRef.current.srcObject = prewarmed;
+            videoRef.current.play().catch(() => {});
+          }
+          return;
+        }
+      }
+
+      // 2. Immediately request proctoring stream (no waiting for quiz loading)
+      if (!isCancelled) {
+        await requestProctoring();
+      }
+    };
+
+    startProctoring();
+
+    // Cleanup ONLY when QuizPage actually unmounts (student navigates away or submits)
+    return () => {
+      isCancelled = true;
       stopProctoring();
     };
-  }, [stopProctoring]);
-
-  // ── Camera/mic proctoring activation: only fires AFTER quiz finishes loading ──
-  useEffect(() => {
-    // Do not start proctoring while quiz is still loading
-    if (loading) return;
-
-    if (typeof window !== 'undefined' && (window as any).__prewarmedProctorStream) {
-      const stream = (window as any).__prewarmedProctorStream as MediaStream;
-      (window as any).__prewarmedProctorStream = null;
-      mediaStreamRef.current = stream;
-      setMediaStream(stream);
-      const hasVideo = stream.getVideoTracks().some((t) => t.readyState === 'live');
-      const hasAudio = stream.getAudioTracks().some((t) => t.readyState === 'live');
-      setCameraActive(hasVideo);
-      setMicActive(hasAudio);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
-      }
-    } else if (!cameraActive) {
-      // Small delay to ensure DOM video element is mounted before we attach stream
-      const timer = setTimeout(() => {
-        requestProctoring();
-      }, 400);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, requestProctoring, cameraActive]);
+  }, [requestProctoring, stopProctoring]);
 
   useEffect(() => {
     if (mediaStream && videoRef.current) {
+      videoRef.current.muted = true;
       if (videoRef.current.srcObject !== mediaStream) {
         videoRef.current.srcObject = mediaStream;
       }
       videoRef.current.play().catch(() => {});
     }
-  }, [mediaStream, loading, cameraActive]);
+  }, [mediaStream]);
 
   const quiz = useQuiz(attemptId, domainSlug || '', studentId || '');
 
@@ -1201,10 +1231,17 @@ export default function QuizPage() {
               <GripHorizontal className="w-3.5 h-3.5 text-slate-400" />
               <span className="font-semibold text-slate-300 text-[10px]">Drag to move</span>
             </div>
-            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-950/80 text-[9px] font-bold text-emerald-400 border border-emerald-500/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              LIVE
-            </div>
+            {cameraActive ? (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-950/80 text-[9px] font-bold text-emerald-400 border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                LIVE
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-800 text-[9px] font-medium text-slate-400 border border-slate-700">
+                <Loader2 className="w-2.5 h-2.5 animate-spin text-indigo-400" />
+                CONNECTING
+              </div>
+            )}
           </div>
 
           <div className="relative aspect-video rounded-xl overflow-hidden bg-slate-900 mb-1.5 border border-slate-800 flex items-center justify-center pointer-events-none">
@@ -1223,8 +1260,8 @@ export default function QuizPage() {
             />
             {!cameraActive && (
               <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center bg-slate-900 text-slate-400">
-                <VideoOff className="w-5 h-5 mb-1 text-rose-400" />
-                <span className="text-[10px] text-rose-300">Camera Inactive</span>
+                <Loader2 className="w-5 h-5 mb-1 text-indigo-400 animate-spin" />
+                <span className="text-[10px] text-slate-300">Activating Camera...</span>
               </div>
             )}
           </div>
@@ -1244,16 +1281,6 @@ export default function QuizPage() {
               AI SECURE
             </span>
           </div>
-
-          {(!cameraActive || proctoringError) && (
-            <button
-              type="button"
-              onClick={() => requestProctoring()}
-              className="mt-1.5 w-full py-1 text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors cursor-pointer pointer-events-auto"
-            >
-              Start Camera & Mic
-            </button>
-          )}
         </div>
       </div>
 

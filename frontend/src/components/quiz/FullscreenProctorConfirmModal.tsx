@@ -24,21 +24,28 @@ export const FullscreenProctorConfirmModal: React.FC<FullscreenProctorConfirmMod
       document.documentElement.requestFullscreen().catch(() => {});
     }
 
-    // Request camera and microphone immediately on user click gesture
+    // Request camera and microphone immediately on user click gesture (preserves user gesture permissions)
     try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      if (navigator?.mediaDevices?.getUserMedia) {
         let stream: MediaStream | null = null;
+        // Tier 1: standard video + audio
         try {
           stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
+            video: { width: { ideal: 640 }, height: { ideal: 480 } },
             audio: true,
           });
-        } catch (audioErr) {
-          console.warn('Audio+Video request failed, trying video only:', audioErr);
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' },
-            audio: false,
-          });
+        } catch (e1) {
+          // Tier 2: unconstrained video + audio
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          } catch (e2) {
+            // Tier 3: video only fallback
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            } catch (e3) {
+              console.warn('[Modal] All media attempts failed:', e3);
+            }
+          }
         }
         if (stream) {
           (window as any).__prewarmedProctorStream = stream;
