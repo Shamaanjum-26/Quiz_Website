@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   ArrowRight, AlertCircle, CheckCircle2, Loader2, UserCheck, Search, ChevronDown, Check, X, Sparkles, BookOpen,
@@ -23,7 +23,6 @@ import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { toast } from '@/hooks/useToast';
 import { TECH_DOMAINS, type TechDomainOption } from '@/data/techDomains';
 import { FullscreenProctorConfirmModal } from '@/components/quiz/FullscreenProctorConfirmModal';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@radix-ui/react-select';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -31,6 +30,7 @@ export default function RegisterPage() {
   const [domainsList, setDomainsList] = useState<TechDomainOption[]>(TECH_DOMAINS);
   const [isLoading, setIsLoading] = useState(false);
   const [isExisting, setIsExisting] = useState(false);
+  const [isAcademicYearOpen, setIsAcademicYearOpen] = useState(false);
   const [isDomainPickerOpen, setIsDomainPickerOpen] = useState(false);
   const [domainSearch, setDomainSearch] = useState('');
   const [customDomainText, setCustomDomainText] = useState('');
@@ -41,13 +41,13 @@ export default function RegisterPage() {
   const [otherAcademicYearError, setOtherAcademicYearError] = useState(false);
   const [createdStudentId, setCreatedStudentId] = useState<string | null>(null);
   const [targetDomainData, setTargetDomainData] = useState<{ id?: string; name: string; slug: string } | null>(null);
+  const academicYearRef = useRef<HTMLDivElement>(null);
   const domainPickerRef = useRef<HTMLDivElement>(null);
   const customDomainInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
     handleSubmit,
-    control,
     setValue,
     formState: { errors },
     watch,
@@ -60,6 +60,7 @@ export default function RegisterPage() {
       utm_content: utm.utm_content,
       utm_term: utm.utm_term,
       referral_code: utm.referral_code,
+      academic_year: '',
       preferred_domain_id: '',
       consent: false,
     },
@@ -72,14 +73,24 @@ export default function RegisterPage() {
   const selectedDomainObj = selectedDomainId ? domainsList.find((d) => d.id === selectedDomainId) : undefined;
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    register('academic_year');
+    register('preferred_domain_id');
+  }, [register]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
       if (domainPickerRef.current && !domainPickerRef.current.contains(event.target as Node)) {
         setIsDomainPickerOpen(false);
       }
+      if (academicYearRef.current && !academicYearRef.current.contains(event.target as Node)) {
+        setIsAcademicYearOpen(false);
+      }
     }
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside as EventListener);
+    document.addEventListener('touchstart', handleClickOutside as EventListener);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', handleClickOutside as EventListener);
+      document.removeEventListener('touchstart', handleClickOutside as EventListener);
     };
   }, []);
 
@@ -375,35 +386,56 @@ export default function RegisterPage() {
                 </div>
 
                 {/* Academic Year */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="academic_year" className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <div className="space-y-1.5 relative" ref={academicYearRef}>
+                  <Label htmlFor="academic_year_trigger" className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                     <Calendar className="w-4 h-4 text-purple-600" />
                     <span>Academic Year *</span>
                   </Label>
-                  <Controller
-                    name="academic_year"
-                    control={control}
-                    render={({ field }) => (
-                      <Select
-                        onValueChange={(val) => {
-                          field.onChange(val);
-                          if (val !== 'Others') {
-                            setOtherAcademicYearError(false);
-                          }
-                        }}
-                        value={field.value}
-                      >
-                        <SelectTrigger id="academic_year" className="h-11 rounded-xl bg-slate-50/70 hover:bg-white border-slate-200 focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/15 text-sm font-medium transition-all duration-200">
-                          <SelectValue placeholder="Select academic year" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ACADEMIC_YEARS.map((y) => (
-                            <SelectItem key={y} value={y}>{y}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
+
+                  {/* Clean Trigger Button with Clearly Visible Purple Chevron */}
+                  <button
+                    id="academic_year_trigger"
+                    type="button"
+                    onClick={() => setIsAcademicYearOpen(!isAcademicYearOpen)}
+                    className="w-full h-11 px-3.5 bg-slate-50/70 hover:bg-white border border-slate-200 hover:border-purple-400 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/15 rounded-xl text-sm shadow-xs flex items-center justify-between text-left transition-all duration-200 cursor-pointer"
+                    aria-expanded={isAcademicYearOpen}
+                  >
+                    <span className={selectedAcademicYear ? 'text-slate-900 font-bold truncate' : 'text-slate-400 truncate'}>
+                      {selectedAcademicYear || 'Select academic year'}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-purple-600 transition-transform duration-200 shrink-0 ml-2 ${isAcademicYearOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {/* Clean Dropdown Popover */}
+                  {isAcademicYearOpen && (
+                    <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden p-1.5 space-y-0.5 animate-in fade-in zoom-in-95 duration-150">
+                      {ACADEMIC_YEARS.map((y) => {
+                        const isSelected = selectedAcademicYear === y;
+                        return (
+                          <button
+                            key={y}
+                            type="button"
+                            onClick={() => {
+                              setValue('academic_year', y, { shouldValidate: true });
+                              setIsAcademicYearOpen(false);
+                              if (y !== 'Others') {
+                                setOtherAcademicYearError(false);
+                              }
+                            }}
+                            className={`w-full flex items-center justify-between px-3.5 py-2.5 text-sm rounded-xl text-left transition-all duration-150 cursor-pointer ${
+                              isSelected
+                                ? 'bg-purple-50 text-purple-700 font-bold'
+                                : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium'
+                            }`}
+                          >
+                            <span>{y}</span>
+                            {isSelected && <Check className="w-4 h-4 text-purple-600 shrink-0 ml-2" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {errors.academic_year && (
                     <p className="text-sm text-red-600 flex items-center gap-1">
                       <AlertCircle className="w-3.5 h-3.5" />
