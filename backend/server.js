@@ -219,6 +219,47 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, config: updated });
     }
 
+    // ── Admin: Complete Cascade Delete of Student(s) from Supabase ──
+    if (pathname === '/api/admin/students/delete' && req.method === 'POST') {
+      const body = await parseJsonBody(req).catch(() => ({}));
+      const studentIds = Array.isArray(body.studentIds)
+        ? body.studentIds
+        : body.studentId
+        ? [body.studentId]
+        : [];
+
+      if (studentIds.length === 0) {
+        return sendJson(res, 400, { error: 'studentId or studentIds required' });
+      }
+
+      const { supabaseFetch } = require('./lib/supabaseAdmin');
+
+      for (const sId of studentIds) {
+        try {
+          const attempts = await supabaseFetch(`quiz_attempts?student_id=eq.${sId}&select=id`).catch(() => []);
+          if (Array.isArray(attempts) && attempts.length > 0) {
+            for (const att of attempts) {
+              await supabaseFetch(`quiz_answers?attempt_id=eq.${att.id}`, { method: 'DELETE' }).catch(() => {});
+            }
+          }
+          await supabaseFetch(`email_logs?student_id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          await supabaseFetch(`whatsapp_logs?student_id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          await supabaseFetch(`bootcamp_registrations?student_id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          await supabaseFetch(`skill_reports?student_id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          await supabaseFetch(`quiz_results?student_id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          await supabaseFetch(`quiz_attempts?student_id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          await supabaseFetch(`lead_activities?student_id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          await supabaseFetch(`leads?student_id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          await supabaseFetch(`students?id=eq.${sId}`, { method: 'DELETE' }).catch(() => {});
+          log(`[AdminDelete] Cascaded and removed student: ${sId}`);
+        } catch (delErr) {
+          log(`[AdminDelete] Warning for student ${sId}: ${delErr.message}`);
+        }
+      }
+
+      return sendJson(res, 200, { success: true, deletedCount: studentIds.length });
+    }
+
     // ── 404 Catch-All ──────────────────────────────────────────
     sendJson(res, 404, { error: `Endpoint '${pathname}' not found` });
   } catch (error) {
