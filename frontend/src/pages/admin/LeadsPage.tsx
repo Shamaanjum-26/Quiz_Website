@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { AdminTableSkeleton } from '@/components/admin/AdminTableSkeleton';
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState';
+import { getStudentDomainDisplay } from '@/lib/domainHelper';
 import {
   listLeads,
   updateLead,
@@ -560,6 +561,7 @@ export default function AdminLeadsPage() {
                 <th className="px-5 py-3.5 bg-slate-50">Candidate Information</th>
                 <th className="px-4 py-3.5 bg-slate-50">Contact</th>
                 <th className="px-4 py-3.5 bg-slate-50">Domain</th>
+                <th className="px-4 py-3.5 bg-slate-50">Quiz Score</th>
                 <th className="px-4 py-3.5 bg-slate-50">Conversion Milestones</th>
                 <th className="px-4 py-3.5 bg-slate-50">Last Activity</th>
                 <th className="px-4 py-3.5 text-right bg-slate-50">Actions</th>
@@ -568,13 +570,13 @@ export default function AdminLeadsPage() {
             <tbody className="divide-y divide-slate-100 text-xs">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="p-0">
-                    <AdminTableSkeleton rows={5} columns={6} />
+                  <td colSpan={7} className="p-0">
+                    <AdminTableSkeleton rows={5} columns={7} />
                   </td>
                 </tr>
               ) : filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12">
+                  <td colSpan={7} className="py-12">
                     <AdminEmptyState
                       title="No leads matching criteria"
                       description="No student prospects match the selected filter or search query."
@@ -646,9 +648,55 @@ export default function AdminLeadsPage() {
 
                       {/* 3. Domain */}
                       <td className="px-4 py-3.5">
-                        <span className="inline-flex px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200/60 text-[10px] font-bold truncate max-w-[110px]">
-                          {student?.preferred_domain?.name || 'General'}
-                        </span>
+                        {(() => {
+                          const domainInfo = getStudentDomainDisplay(student);
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200/60 text-[10px] font-bold truncate max-w-[130px]">
+                              <span>{domainInfo.icon}</span>
+                              <span className="truncate">{domainInfo.name}</span>
+                            </span>
+                          );
+                        })()}
+                      </td>
+
+                      {/* 4. Quiz Score */}
+                      <td className="px-4 py-3.5">
+                        {lead.has_completed_quiz || lead.quiz_percentage !== undefined || (lead as any).quiz_correct_answers !== undefined ? (
+                          <div className="space-y-0.5">
+                            {(() => {
+                              const totalQ = Math.max(10, (lead as any).quiz_total_questions || 10);
+                              const correct = (lead as any).quiz_correct_answers !== undefined
+                                ? (lead as any).quiz_correct_answers
+                                : lead.quiz_percentage !== undefined
+                                ? Math.round(((lead.quiz_percentage || 0) / 100) * totalQ)
+                                : Math.round(((lead.lead_score || 50) / 100) * totalQ);
+                              const pct = Math.min(100, Math.round((correct / totalQ) * 100));
+                              return (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold border shadow-2xs ${
+                                    pct >= 70
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+                                      : pct >= 50
+                                      ? 'bg-amber-50 text-amber-700 border-amber-200/80'
+                                      : 'bg-rose-50 text-rose-700 border-rose-200/80'
+                                  }`}
+                                >
+                                  <Sparkles className="w-3 h-3 shrink-0" />
+                                  <span>{pct}%</span>
+                                </span>
+                              );
+                            })()}
+                            {(lead as any).quiz_correct_answers !== undefined && (
+                              <p className="text-[10px] text-slate-500 font-mono font-medium pl-0.5">
+                                {(lead as any).quiz_correct_answers}/{Math.max(10, (lead as any).quiz_total_questions || 10)} correct
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-50 text-slate-400 border border-slate-200/60 text-[10px] font-medium">
+                            Pending
+                          </span>
+                        )}
                       </td>
 
                       {/* 5. Milestones */}

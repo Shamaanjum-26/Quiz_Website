@@ -4,6 +4,7 @@ import { calculateLeadStatus, buildQualificationReason } from '@/lib/leadScoring
 import { LOCAL_STUDENTS_KEY, DELETED_STUDENTS_KEY, deleteStudent, deleteAllStudents } from '@/services/studentService';
 import { getBackendUrl } from '@/lib/apiConfig';
 import { notifyDataChange } from '@/lib/sync';
+import { getStudentDomainDisplay } from '@/lib/domainHelper';
 
 export const LOCAL_LEADS_KEY = 'hadescore_local_leads';
 export const DELETED_LEADS_KEY = 'hadescore_deleted_leads';
@@ -157,9 +158,22 @@ export function getLocalLeads(): Lead[] {
 
     const raw = localStorage.getItem(LOCAL_LEADS_KEY);
     const list: Lead[] = raw ? JSON.parse(raw) : [];
-    return list.filter(
-      (l) => !deletedLeadIds.has(l.id) && !deletedStudentIds.has(l.student_id)
-    );
+    return list
+      .map((l) => {
+        if (l.has_completed_quiz || (l as any).quiz_correct_answers !== undefined) {
+          const total = Math.max(10, (l as any).quiz_total_questions || 10);
+          const correct = (l as any).quiz_correct_answers !== undefined
+            ? Math.min((l as any).quiz_correct_answers, total)
+            : Math.round(((l.lead_score || 50) / 100) * total);
+          (l as any).quiz_total_questions = total;
+          (l as any).quiz_correct_answers = correct;
+          (l as any).quiz_percentage = Math.round((correct / total) * 100);
+        }
+        return l;
+      })
+      .filter(
+        (l) => !deletedLeadIds.has(l.id) && !deletedStudentIds.has(l.student_id)
+      );
   } catch {
     return [];
   }
@@ -388,10 +402,14 @@ export async function listLeads(
           const resultMap = new Map<string, { correct: number; total: number; pct: number }>();
           for (const r of quizResults) {
             if (!resultMap.has(r.student_id)) {
+              // Ensure total questions reflects full assessment (minimum 10 questions)
+              const total = Math.max(10, r.total_questions || 10);
+              const correct = Math.min(r.correct_answers ?? 0, total);
+              const pct = Math.round((correct / total) * 100);
               resultMap.set(r.student_id, {
-                correct: r.correct_answers ?? 0,
-                total: r.total_questions ?? 0,
-                pct: r.percentage ?? 0,
+                correct,
+                total,
+                pct,
               });
             }
           }
@@ -408,6 +426,7 @@ export async function listLeads(
               const approxCorrect = Math.max(1, Math.min(totalQ, Math.round(((lead.lead_score || 50) / 100) * totalQ)));
               (lead as any).quiz_correct_answers = approxCorrect;
               (lead as any).quiz_total_questions = totalQ;
+              (lead as any).quiz_percentage = Math.round((approxCorrect / totalQ) * 100);
             }
           }
         }
@@ -556,7 +575,7 @@ export async function exportLeadsCSV(): Promise<string> {
   }
 
   const headers = [
-    'Name', 'Email', 'Mobile', 'College', 'Lead Score', 'Lead Status',
+    'Name', 'Email', 'Mobile', 'College', 'Domain', 'Quiz Score', 'Lead Score', 'Lead Status',
     'UTM Source', 'Campaign', 'Referral Code', 'Last Activity',
   ];
 
@@ -565,6 +584,14 @@ export async function exportLeadsCSV(): Promise<string> {
     l.student?.email || '',
     l.student?.mobile || '',
     l.student?.college || '',
+    getStudentDomainDisplay(l.student).name,
+    l.quiz_percentage !== undefined
+      ? `${l.quiz_percentage}%`
+      : l.quiz_correct_answers !== undefined
+      ? `${Math.round((l.quiz_correct_answers / (l.quiz_total_questions || 10)) * 100)}% (${l.quiz_correct_answers}/${l.quiz_total_questions || 10})`
+      : l.has_completed_quiz
+      ? 'Completed'
+      : 'Pending',
     l.lead_score,
     l.lead_status,
     l.student?.utm_source || '',

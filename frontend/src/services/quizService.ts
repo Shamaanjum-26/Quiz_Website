@@ -2,6 +2,7 @@ import supabase, { isSupabaseConfigured } from '@/lib/supabase';
 import { persistQuizState, clearQuizState } from '@/lib/analytics';
 import { notifyDataChange } from '@/lib/sync';
 import { getBackendUrl } from '@/lib/apiConfig';
+import { checkQuestionBankCorrectAnswer } from './questionBank';
 import type { Domain, Question, QuizAttempt, QuizAnswer, QuizResult } from '@/types';
 
 // ── Get all active domains ────────────────────────────────────
@@ -21,23 +22,164 @@ export async function getDomains(): Promise<Domain[]> {
   }
 }
 
+const DOMAIN_SLUG_MAP: Record<string, string> = {
+  'ai-ml': 'data-science-machine-learning',
+  'ai': 'data-science-machine-learning',
+  'ml': 'data-science-machine-learning',
+  'data-science': 'data-science-machine-learning',
+  'data-science-machine-learning': 'data-science-machine-learning',
+  'web-development': 'full-stack-web-development',
+  'web-dev': 'full-stack-web-development',
+  'fullstack': 'full-stack-web-development',
+  'full-stack': 'full-stack-web-development',
+  'full-stack-web-development': 'full-stack-web-development',
+  'javascript': 'full-stack-web-development',
+  'react': 'full-stack-web-development',
+  'python': 'python-programming',
+  'python-programming': 'python-programming',
+  'java': 'java-backend-architecture',
+  'java-backend-architecture': 'java-backend-architecture',
+  'cloud': 'cloud-devops',
+  'devops': 'cloud-devops',
+  'cloud-devops': 'cloud-devops',
+  'cyber-security': 'cybersecurity-ethical-hacking',
+  'cybersecurity': 'cybersecurity-ethical-hacking',
+  'security': 'cybersecurity-ethical-hacking',
+  'cybersecurity-ethical-hacking': 'cybersecurity-ethical-hacking',
+};
+
+const DOMAIN_METADATA_FALLBACKS: Record<string, Domain> = {
+  'data-science-machine-learning': {
+    id: 'd0000000-0000-0000-0000-000000000003',
+    name: 'Data Science & AI',
+    slug: 'data-science-machine-learning',
+    description: 'Pandas, NumPy, Scikit-learn, statistical modeling, neural networks, and feature engineering.',
+    icon: '🤖',
+    color: '#8b5cf6',
+    difficulty: 'intermediate',
+    question_count: 30,
+    estimated_minutes: 20,
+    active: true,
+    display_order: 3,
+    created_at: '',
+    updated_at: '',
+  },
+  'full-stack-web-development': {
+    id: 'd0000000-0000-0000-0000-000000000002',
+    name: 'Full-Stack Web Dev',
+    slug: 'full-stack-web-development',
+    description: 'Modern React, TypeScript, Node.js, REST APIs, state management, and web performance.',
+    icon: '💻',
+    color: '#10b981',
+    difficulty: 'intermediate',
+    question_count: 30,
+    estimated_minutes: 20,
+    active: true,
+    display_order: 2,
+    created_at: '',
+    updated_at: '',
+  },
+  'python-programming': {
+    id: 'd0000000-0000-0000-0000-000000000001',
+    name: 'Python Development',
+    slug: 'python-programming',
+    description: 'Core Python, OOP, decorators, data structures, concurrency, and ecosystem best practices.',
+    icon: '🐍',
+    color: '#3b82f6',
+    difficulty: 'beginner',
+    question_count: 30,
+    estimated_minutes: 15,
+    active: true,
+    display_order: 1,
+    created_at: '',
+    updated_at: '',
+  },
+  'java-backend-architecture': {
+    id: 'd0000000-0000-0000-0000-000000000004',
+    name: 'Java & Spring Boot',
+    slug: 'java-backend-architecture',
+    description: 'Java 17+, JVM internals, Spring Boot REST microservices, concurrency, and JPA/Hibernate.',
+    icon: '☕',
+    color: '#f59e0b',
+    difficulty: 'intermediate',
+    question_count: 30,
+    estimated_minutes: 20,
+    active: true,
+    display_order: 4,
+    created_at: '',
+    updated_at: '',
+  },
+  'cloud-devops': {
+    id: 'd0000000-0000-0000-0000-000000000005',
+    name: 'Cloud & DevOps',
+    slug: 'cloud-devops',
+    description: 'Docker containerization, Kubernetes, CI/CD pipelines, AWS fundamentals, and Linux administration.',
+    icon: '☁️',
+    color: '#06b6d4',
+    difficulty: 'advanced',
+    question_count: 30,
+    estimated_minutes: 25,
+    active: true,
+    display_order: 5,
+    created_at: '',
+    updated_at: '',
+  },
+  'cybersecurity-ethical-hacking': {
+    id: 'd0000000-0000-0000-0000-000000000006',
+    name: 'Cybersecurity',
+    slug: 'cybersecurity-ethical-hacking',
+    description: 'Network security protocols, OWASP Top 10 web vulnerabilities, cryptography, and penetration testing.',
+    icon: '🛡️',
+    color: '#ef4444',
+    difficulty: 'advanced',
+    question_count: 30,
+    estimated_minutes: 25,
+    active: true,
+    display_order: 6,
+    created_at: '',
+    updated_at: '',
+  },
+};
+
 // ── Get domain by slug ────────────────────────────────────────
 export async function getDomainBySlug(slug: string): Promise<Domain | null> {
-  if (!isSupabaseConfigured) return null;
-  try {
-    const { data, error } = await supabase
-      .from('domains')
-      .select('*')
-      .eq('slug', slug)
-      .eq('active', true)
-      .maybeSingle();
+  const clean = (slug || '').toLowerCase().trim();
+  const canonicalSlug = DOMAIN_SLUG_MAP[clean] || clean;
 
-    if (error) return null;
-    return data as Domain | null;
-  } catch {
-    return null;
+  if (isSupabaseConfigured) {
+    try {
+      // First try exact slug
+      let { data, error } = await supabase
+        .from('domains')
+        .select('*')
+        .eq('slug', clean)
+        .eq('active', true)
+        .maybeSingle();
+
+      if (!data && canonicalSlug !== clean) {
+        // Try mapped canonical slug
+        const res = await supabase
+          .from('domains')
+          .select('*')
+          .eq('slug', canonicalSlug)
+          .eq('active', true)
+          .maybeSingle();
+        data = res.data;
+      }
+
+      if (data) return data as Domain;
+    } catch {}
   }
+
+  // Fallback to rich domain metadata
+  const fallback = DOMAIN_METADATA_FALLBACKS[canonicalSlug] || DOMAIN_METADATA_FALLBACKS[clean];
+  if (fallback) {
+    return { ...fallback };
+  }
+
+  return null;
 }
+
 
 // ── Get questions for a domain (WITHOUT correct answers) ──
 export async function getQuestionsForQuiz(domainId: string, limit?: number): Promise<Question[]> {
@@ -232,12 +374,15 @@ export function saveAnswerLocally(
 export async function submitQuiz(
   attemptId: string,
   studentId: string,
-  answers: Record<string, string | null>
+  answers: Record<string, string | null>,
+  totalQuestionsCount?: number
 ): Promise<QuizResult> {
   const answersArray: QuizAnswer[] = Object.entries(answers).map(([questionId, optionId]) => ({
     question_id: questionId,
     selected_option_id: optionId,
   }));
+
+  const declaredTotal = totalQuestionsCount && totalQuestionsCount > 0 ? totalQuestionsCount : 10;
 
   // 1. Try Hadescore Backend Quiz Engine with fast 2.5s timeout (Server-Side Grading & Anti-Cheat)
   try {
@@ -247,7 +392,7 @@ export async function submitQuiz(
     const res = await fetch(`${BACKEND_URL}/api/quiz/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attemptId, studentId, answers }),
+      body: JSON.stringify({ attemptId, studentId, answers, totalQuestions: declaredTotal }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -285,6 +430,9 @@ export async function submitQuiz(
             if (idx >= 0) {
               leads[idx].has_completed_quiz = true;
               leads[idx].has_viewed_result = true;
+              leads[idx].quiz_percentage = pct;
+              leads[idx].quiz_correct_answers = data.result.correctAnswers;
+              leads[idx].quiz_total_questions = data.result.totalQuestions;
               leads[idx].lead_score = Math.min(100, Math.max(50, pct + 20));
               leads[idx].lead_status = pct >= 50 ? 'HOT' : 'WARM';
               leads[idx].qualification_reason = `High Intent: completed assessment (${pct}%), scored ${skill} level`;
@@ -337,19 +485,28 @@ export async function submitQuiz(
 
   let correctCount = 0;
   let incorrectCount = 0;
-  let unansweredCount = 0;
 
   for (const [qId, optId] of Object.entries(answers)) {
-    if (!optId) {
-      unansweredCount++;
-    } else if (correctMap.get(qId) === optId) {
-      correctCount++;
-    } else {
-      incorrectCount++;
+    if (optId) {
+      if (correctMap.has(qId)) {
+        if (correctMap.get(qId) === optId) {
+          correctCount++;
+        } else {
+          incorrectCount++;
+        }
+      } else {
+        if (checkQuestionBankCorrectAnswer(qId, optId)) {
+          correctCount++;
+        } else {
+          incorrectCount++;
+        }
+      }
     }
   }
 
-  const totalQuestions = questionIds.length || 1;
+
+  const totalQuestions = Math.max(declaredTotal, questionIds.length);
+  const unansweredCount = Math.max(0, totalQuestions - (correctCount + incorrectCount));
   const percentage = Math.round((correctCount / totalQuestions) * 100);
 
   let skillLevel: 'Foundation' | 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert' = 'Foundation';
@@ -436,6 +593,9 @@ export async function submitQuiz(
       if (idx >= 0) {
         leads[idx].has_completed_quiz = true;
         leads[idx].has_viewed_result = true;
+        leads[idx].quiz_percentage = percentage;
+        leads[idx].quiz_correct_answers = correctCount;
+        leads[idx].quiz_total_questions = totalQuestions;
         leads[idx].lead_score = Math.min(100, Math.max(50, percentage + 20));
         leads[idx].lead_status = percentage >= 50 ? 'HOT' : 'WARM';
         leads[idx].qualification_reason = `High Intent: completed assessment (${percentage}%), scored ${skillLevel} level`;

@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { supabaseFetch, SUPABASE_URL } = require('../lib/supabaseAdmin');
 const { generateDomainQuestionsWithGemini } = require('./geminiService');
+const domainQuestionBank = require('../data/domainQuestionBank');
 
 const CONFIG_FILE = path.join(__dirname, '../data/quizConfig.json');
 
@@ -259,33 +260,107 @@ async function startQuizAttempt(studentId, domainId, requestedTargetCount) {
   // UUID validation: ensure studentId is valid hex UUID for DB
   const validStudentId = isValidUuid(studentId) ? studentId : '9bf23b8a-9669-4070-9871-1fdf9f84ca15';
 
-  // Resolve domainId if non-UUID (e.g. "dyn-python" or slug like "python")
+  // Canonical domain IDs mapping (Supabase seeded domain UUIDs)
+  const CANONICAL_DOMAIN_MAP = {
+    'python-programming': 'd0000000-0000-0000-0000-000000000001',
+    'python': 'd0000000-0000-0000-0000-000000000001',
+    'full-stack-web-development': 'd0000000-0000-0000-0000-000000000002',
+    'web-development': 'd0000000-0000-0000-0000-000000000002',
+    'web-dev': 'd0000000-0000-0000-0000-000000000002',
+    'react': 'd0000000-0000-0000-0000-000000000002',
+    'javascript': 'd0000000-0000-0000-0000-000000000002',
+    'data-science-machine-learning': 'd0000000-0000-0000-0000-000000000003',
+    'ai-ml': 'd0000000-0000-0000-0000-000000000003',
+    'ai': 'd0000000-0000-0000-0000-000000000003',
+    'ml': 'd0000000-0000-0000-0000-000000000003',
+    'data-science': 'd0000000-0000-0000-0000-000000000003',
+    'java-backend-architecture': 'd0000000-0000-0000-0000-000000000004',
+    'java': 'd0000000-0000-0000-0000-000000000004',
+    'cloud-devops': 'd0000000-0000-0000-0000-000000000005',
+    'cloud': 'd0000000-0000-0000-0000-000000000005',
+    'devops': 'd0000000-0000-0000-0000-000000000005',
+    'cybersecurity-ethical-hacking': 'd0000000-0000-0000-0000-000000000006',
+    'cybersecurity': 'd0000000-0000-0000-0000-000000000006',
+    'cyber-security': 'd0000000-0000-0000-0000-000000000006',
+    'security': 'd0000000-0000-0000-0000-000000000006',
+    'ui-ux-design': 'd0000000-0000-0000-0000-000000000007',
+    'ui-ux': 'd0000000-0000-0000-0000-000000000007',
+    'prompt-engineering': 'd0000000-0000-0000-0000-000000000008',
+    'prompt': 'd0000000-0000-0000-0000-000000000008',
+    'generative-ai': 'd0000000-0000-0000-0000-000000000008',
+    'biotechnology': 'd0000000-0000-0000-0000-000000000009',
+    'biotech': 'd0000000-0000-0000-0000-000000000009',
+    'dsa': 'd0000000-0000-0000-0000-000000000010',
+    'cpp': 'd0000000-0000-0000-0000-000000000011',
+    'c': 'd0000000-0000-0000-0000-000000000011',
+    'business-management': 'd0000000-0000-0000-0000-000000000012',
+    'civil-engineering': 'd0000000-0000-0000-0000-000000000013',
+    'civil-eng': 'd0000000-0000-0000-0000-000000000013',
+    'electrical-engineering': 'd0000000-0000-0000-0000-000000000014',
+    'eee-eng': 'd0000000-0000-0000-0000-000000000014',
+    'mechanical-engineering': 'd0000000-0000-0000-0000-000000000015',
+    'mech-eng': 'd0000000-0000-0000-0000-000000000015',
+    'core-engineering': 'd0000000-0000-0000-0000-000000000015',
+  };
+
+  // Resolve domainId if non-UUID (e.g. "dyn-ai-ml" or slug like "ai-ml")
+  const rawDomainStr = String(domainId || '').replace(/^dyn-/, '').toLowerCase().trim();
+  let cleanSlug = rawDomainStr;
   let validDomainId = domainId;
-  if (!isValidUuid(domainId)) {
-    const cleanSlug = String(domainId).replace(/^dyn-/, '').toLowerCase();
-    try {
-      const foundDomain = await supabaseFetch(`domains?slug=eq.${cleanSlug}&select=id&limit=1`);
-      if (Array.isArray(foundDomain) && foundDomain.length > 0) {
-        validDomainId = foundDomain[0].id;
-      } else {
-        const foundList = await supabaseFetch('domains?select=id,slug&limit=10');
-        const match = (foundList || []).find(d => d.slug.includes(cleanSlug) || cleanSlug.includes(d.slug));
-        validDomainId = match?.id || 'd0000000-0000-0000-0000-000000000001';
+
+  if (isValidUuid(domainId)) {
+    // Reverse lookup slug if UUID is provided
+    for (const [s, uuid] of Object.entries(CANONICAL_DOMAIN_MAP)) {
+      if (uuid === domainId) { cleanSlug = s; break; }
+    }
+  } else {
+    validDomainId = CANONICAL_DOMAIN_MAP[cleanSlug];
+    if (!validDomainId) {
+      try {
+        const foundDomain = await supabaseFetch(`domains?slug=eq.${cleanSlug}&select=id,slug&limit=1`);
+        if (Array.isArray(foundDomain) && foundDomain.length > 0) {
+          validDomainId = foundDomain[0].id;
+          cleanSlug = foundDomain[0].slug || cleanSlug;
+        } else {
+          const foundList = await supabaseFetch('domains?select=id,slug&limit=20');
+          const match = (foundList || []).find(d => d.slug.includes(cleanSlug) || cleanSlug.includes(d.slug));
+          if (match) {
+            validDomainId = match.id;
+            cleanSlug = match.slug;
+          } else {
+            // Dynamically ensure custom domain exists in Supabase domains table so it never links to Python!
+            const dynamicName = cleanSlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            try {
+              const inserted = await supabaseFetch('domains', {
+                method: 'POST',
+                headers: { 'Prefer': 'return=representation' },
+                body: [{
+                  name: dynamicName,
+                  slug: cleanSlug,
+                  active: true,
+                  question_count: 30
+                }]
+              });
+              if (Array.isArray(inserted) && inserted.length > 0) {
+                validDomainId = inserted[0].id;
+              }
+            } catch {}
+          }
+        }
+      } catch {
+        validDomainId = null;
       }
-    } catch {
-      validDomainId = 'd0000000-0000-0000-0000-000000000001';
     }
   }
 
   // 1. Check student attempt count
   let attempts = [];
-  if (isValidUuid(studentId)) {
+  if (isValidUuid(studentId) && validDomainId) {
     try {
       attempts = await supabaseFetch(`quiz_attempts?student_id=eq.${validStudentId}&domain_id=eq.${validDomainId}&select=id,status`);
     } catch {}
   }
   const attemptCount = Array.isArray(attempts) ? attempts.length : 0;
-  // Note: Attempt cap disabled to allow unlimited practice and assessment retakes.
 
   // 2. Fetch questions previously seen by this student in this domain (Level 2 Deduplication)
   const seenQuestionIds = new Set();
@@ -302,9 +377,25 @@ async function startQuizAttempt(studentId, domainId, requestedTargetCount) {
   }
 
   // 3. Fetch all active questions for this domain
-  let allQuestions = await supabaseFetch(`questions?domain_id=eq.${validDomainId}&active=eq.true&select=id,question_text,difficulty,marks,explanation,display_order`);
+  let allQuestions = [];
+  if (validDomainId) {
+    try {
+      const fetched = await supabaseFetch(`questions?domain_id=eq.${validDomainId}&active=eq.true&select=id,question_text,difficulty,marks,explanation,display_order`);
+      if (Array.isArray(fetched)) allQuestions = fetched;
+    } catch (dbErr) {
+      console.warn('[QuizEngine] Error fetching DB questions:', dbErr.message);
+    }
+  }
 
   const shuffleArray = (arr) => [...arr].sort(() => Math.random() - 0.5);
+
+  // If DB questions for this domain are insufficient (< 20) or domain is custom/bank domain, load the authentic domain-specific questions!
+  if (!Array.isArray(allQuestions) || allQuestions.length < 20) {
+    const domainBankQs = domainQuestionBank.getDomainQuestions(cleanSlug || domainId, requestedTargetCount || 30);
+    if (domainBankQs && domainBankQs.length > 0) {
+      allQuestions = domainBankQs;
+    }
+  }
 
   const getTierPools = (qList) => {
     const easy = (qList || []).filter(q => String(q.difficulty).toLowerCase() === 'easy');
@@ -318,39 +409,6 @@ async function startQuizAttempt(studentId, domainId, requestedTargetCount) {
   let unseenEasy = easyPool.filter(q => !seenQuestionIds.has(q.id));
   let unseenMedium = mediumPool.filter(q => !seenQuestionIds.has(q.id));
   let unseenHard = hardPool.filter(q => !seenQuestionIds.has(q.id));
-
-  // Auto-generation requirement:
-  // If questions are below 20, wait for generation so student has questions.
-  // If questions are 20-29 or unseen pool is low, trigger background generation asynchronously without delaying student!
-  const hasEnoughForQuiz = Array.isArray(allQuestions) && allQuestions.length >= 20;
-
-  if (!hasEnoughForQuiz) {
-    console.log(`[QuizEngine] Question pool low (${allQuestions?.length || 0} questions). Generating fresh 30-question bank with Gemini...`);
-    try {
-      await generateAndStoreDomainBank(validDomainId);
-      allQuestions = await supabaseFetch(`questions?domain_id=eq.${validDomainId}&active=eq.true&select=id,question_text,difficulty,marks,explanation,display_order`);
-      const updatedPools = getTierPools(allQuestions);
-      easyPool = updatedPools.easy;
-      mediumPool = updatedPools.medium;
-      hardPool = updatedPools.hard;
-
-      unseenEasy = easyPool.filter(q => !seenQuestionIds.has(q.id));
-      unseenMedium = mediumPool.filter(q => !seenQuestionIds.has(q.id));
-      unseenHard = hardPool.filter(q => !seenQuestionIds.has(q.id));
-    } catch (genErr) {
-      console.warn('[QuizEngine] Auto-generation error:', genErr.message);
-    }
-  } else if (hasGeminiKey && (allQuestions.length < 30 || unseenEasy.length < 10 || unseenMedium.length < 10 || unseenHard.length < 10)) {
-    // Non-blocking background refill so student starts quiz instantly
-    console.log(`[QuizEngine] Background auto-refill triggered for domain ${validDomainId} (Current: ${allQuestions.length} questions)...`);
-    generateAndStoreDomainBank(validDomainId).catch(err => {
-      console.warn('[QuizEngine] Background auto-refill note:', err.message);
-    });
-  }
-
-  if (!Array.isArray(allQuestions) || allQuestions.length === 0) {
-    throw new Error('No questions available for this domain. Please contact admin.');
-  }
 
   // Helper to select exactly N questions prioritizing unseen, then supplementing from pool without duplicates
   const selectTierQuestions = (unseenList, fullPool, count = 10) => {
@@ -395,21 +453,38 @@ async function startQuizAttempt(studentId, domainId, requestedTargetCount) {
   }
   const selectedQuestionIds = selectedQuestions.map(q => q.id);
 
-  // 5. Fetch options for selected questions
-  const options = await supabaseFetch(`question_options?question_id=in.(${selectedQuestionIds.join(',')})&select=id,question_id,option_text,option_order`);
-
+  // 5. Fetch options for selected questions (from DB or already attached from domainQuestionBank)
   const optionsMap = {};
-  if (Array.isArray(options)) {
-    options.forEach(opt => {
-      if (!optionsMap[opt.question_id]) optionsMap[opt.question_id] = [];
-      // SECURITY: Strip is_correct completely
-      optionsMap[opt.question_id].push({
+
+  // First attach any options already on question objects (from domainQuestionBank)
+  selectedQuestions.forEach(q => {
+    if (Array.isArray(q.options) && q.options.length > 0) {
+      optionsMap[q.id] = q.options.map(opt => ({
         id: opt.id,
-        question_id: opt.question_id,
+        question_id: opt.question_id || q.id,
         option_text: opt.option_text,
         option_order: opt.option_order
-      });
-    });
+      }));
+    }
+  });
+
+  // Then fetch missing options from DB if needed
+  const missingOptionQIds = selectedQuestionIds.filter(id => !optionsMap[id] || optionsMap[id].length === 0);
+  if (missingOptionQIds.length > 0) {
+    try {
+      const options = await supabaseFetch(`question_options?question_id=in.(${missingOptionQIds.join(',')})&select=id,question_id,option_text,option_order`);
+      if (Array.isArray(options)) {
+        options.forEach(opt => {
+          if (!optionsMap[opt.question_id]) optionsMap[opt.question_id] = [];
+          optionsMap[opt.question_id].push({
+            id: opt.id,
+            question_id: opt.question_id,
+            option_text: opt.option_text,
+            option_order: opt.option_order
+          });
+        });
+      }
+    } catch {}
   }
 
   // Assemble sanitized questions in sequential difficulty order with shuffled options
@@ -430,27 +505,38 @@ async function startQuizAttempt(studentId, domainId, requestedTargetCount) {
     };
   });
 
+
   // 6. Create attempt record with dynamic timer duration
   const quizDurationMinutes = config.quiz_duration_minutes || config.quiz_timer_minutes || 15;
   const expiresAt = new Date(Date.now() + quizDurationMinutes * 60 * 1000).toISOString();
   const attemptPayload = {
     student_id: validStudentId,
-    domain_id: validDomainId,
+    domain_id: validDomainId || 'd0000000-0000-0000-0000-000000000001',
     status: 'started',
     total_questions: sanitizedQuestions.length,
     started_at: new Date().toISOString(),
     expires_at: expiresAt
   };
 
-  const newAttemptArr = await supabaseFetch('quiz_attempts', {
-    method: 'POST',
-    body: [attemptPayload]
-  });
-
-  const createdAttempt = Array.isArray(newAttemptArr) && newAttemptArr.length > 0 ? newAttemptArr[0] : {
-    id: 'att-' + Date.now(),
+  const crypto = require('crypto');
+  let createdAttempt = {
+    id: crypto.randomUUID(),
     ...attemptPayload
   };
+
+  try {
+    const newAttemptArr = await supabaseFetch('quiz_attempts', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=representation' },
+      body: [attemptPayload]
+    });
+    if (Array.isArray(newAttemptArr) && newAttemptArr.length > 0) {
+      createdAttempt = newAttemptArr[0];
+    }
+  } catch (attInsertErr) {
+    console.warn('[QuizEngine] Note on quiz_attempts persistence:', attInsertErr.message);
+  }
+
 
   return {
     attemptId: createdAttempt.id,
@@ -476,7 +562,7 @@ async function startQuizAttempt(studentId, domainId, requestedTargetCount) {
  * - Calculates percentage and skill level
  * - Saves quiz_answers and quiz_results
  */
-async function submitQuizAttempt(attemptId, studentId, answers) {
+async function submitQuizAttempt(attemptId, studentId, answers, declaredTotalQuestions) {
   // answers is an object of { [question_id]: selected_option_id }
   const answerEntries = Object.entries(answers || {});
   const questionIds = answerEntries.map(([qId]) => qId);
@@ -507,22 +593,59 @@ async function submitQuizAttempt(attemptId, studentId, answers) {
     }
   });
 
-  // 3. Evaluate answers in-memory
-  let correctAnswers = 0;
-  let incorrectAnswers = 0;
-  let unanswered = 0;
-  const totalQuestions = questionIds.length || 10;
-
-  for (const [qId, selectedOptId] of answerEntries) {
-    if (!selectedOptId) {
-      unanswered++;
-    } else if (correctOptionMap.get(qId) === selectedOptId) {
-      correctAnswers++;
-    } else {
-      incorrectAnswers++;
+  // Supplement correct answers from domainQuestionBank if not in DB
+  for (const [qId] of answerEntries) {
+    if (!correctOptionMap.has(qId)) {
+      for (const [domKey, qList] of Object.entries(domainQuestionBank.DOMAIN_QUESTIONS)) {
+        for (let i = 0; i < qList.length; i++) {
+          const item = qList[i];
+          const candidateQId1 = `${domKey}-q-${i + 1}`;
+          const candidateQId2 = `${domKey}-${i + 1}`;
+          if (qId === candidateQId1 || qId === candidateQId2 || qId.includes(candidateQId1) || qId.includes(candidateQId2)) {
+            const correctOpt1 = `${candidateQId1}-opt-${String.fromCharCode(97 + item.ans)}`;
+            const correctOpt2 = `${candidateQId2}-${String.fromCharCode(97 + item.ans)}`;
+            correctOptionMap.set(qId, [correctOpt1, correctOpt2]);
+            break;
+          }
+        }
+        if (correctOptionMap.has(qId)) break;
+      }
     }
   }
 
+  // 3. True total questions is either declared by caller, from attempt record, or default 10
+  const totalQuestions = Math.max(
+    1,
+    Number(declaredTotalQuestions) ||
+    Number(attempt?.total_questions) ||
+    (answerEntries.length > 0 ? answerEntries.length : 10)
+  );
+
+  // Evaluate answers in-memory
+  let correctAnswers = 0;
+  let incorrectAnswers = 0;
+
+  for (const [qId, selectedOptId] of answerEntries) {
+    if (selectedOptId) {
+      if (domainQuestionBank.checkCorrectAnswer && domainQuestionBank.checkCorrectAnswer(qId, selectedOptId)) {
+        correctAnswers++;
+        continue;
+      }
+
+      const expected = correctOptionMap.get(qId);
+      const isMatch = Array.isArray(expected)
+        ? expected.some(exp => exp === selectedOptId || selectedOptId.endsWith(exp.slice(-6)))
+        : expected === selectedOptId;
+
+      if (isMatch) {
+        correctAnswers++;
+      } else {
+        incorrectAnswers++;
+      }
+    }
+  }
+
+  const unanswered = Math.max(0, totalQuestions - (correctAnswers + incorrectAnswers));
   const percentage = Math.round((correctAnswers / totalQuestions) * 100);
 
   let skillLevel = 'Foundation';

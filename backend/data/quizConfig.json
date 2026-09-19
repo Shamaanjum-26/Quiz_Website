@@ -6,6 +6,6 @@
   "max_attempts": 1,
   "passing_percentage": 17,
   "gemini_api_key": "",
-  "quiz_timer_minutes": 30,
+  "quiz_timer_minutes": 15,
   "gemini_api_key_masked": ""
 }

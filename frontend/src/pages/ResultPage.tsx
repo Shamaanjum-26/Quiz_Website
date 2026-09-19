@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import {
   CheckCircle2, Clock,
-  Loader2, AlertCircle,
+  Loader2,
   Sparkles, ArrowRight
 } from 'lucide-react';
 import { getQuizResult, getStoredQuizConfig } from '@/services/quizService';
-import { getBootcampForDomain } from '@/services/bootcampService';
+import { getBootcampForDomain, registerForBootcamp } from '@/services/bootcampService';
 import { trackLeadActivity } from '@/services/leadService';
 import { getPersistedStudentId } from '@/lib/analytics';
 import { formatTimeTaken } from '@/lib/scoring';
@@ -27,18 +27,23 @@ export default function ResultPage() {
   const [studentName, setStudentName] = useState<string>('');
   const [bootcamp, setBootcamp] = useState<Bootcamp | null>(null);
   const [imgError, setImgError] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
 
   const studentId = getPersistedStudentId();
   const stateResult = (location.state as any)?.result || (location.state as any)?.devResult;
   const devResult = stateResult;
 
+  const storedDomainSlug = typeof window !== 'undefined' && attemptId ? sessionStorage.getItem(`quiz_domain_slug_${attemptId}`) : null;
+  const storedDomainName = typeof window !== 'undefined' && attemptId ? sessionStorage.getItem(`quiz_domain_name_${attemptId}`) : null;
+
   const targetDomainSlug =
     (location.state as any)?.domainSlug ||
+    storedDomainSlug ||
     (stateResult as any)?.domain?.slug ||
     (stateResult as any)?.domain_slug ||
     (result as any)?.domain?.slug ||
     (result as any)?.domain_slug ||
-    'python';
+    'ui-ux-design';
 
   const targetDomainId =
     (location.state as any)?.domainId ||
@@ -54,6 +59,36 @@ export default function ResultPage() {
     (stateResult as any)?.student_id ||
     (result as any)?.student_id ||
     'student-' + Date.now();
+
+  // Prevent back navigation to quiz assessment & ensure fullscreen is exited
+  useEffect(() => {
+    // Ensure fullscreen is closed on result page
+    try {
+      if (document.fullscreenElement) {
+        const doc = document as any;
+        if (doc.exitFullscreen) {
+          doc.exitFullscreen().catch(() => {});
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        } else if (doc.msExitFullscreen) {
+          doc.msExitFullscreen();
+        }
+      }
+    } catch {}
+
+    // Trap the back button to remain on the result page
+    window.history.pushState(null, '', window.location.href);
+
+    const handlePopState = () => {
+      // Re-push history state to keep the user on the result page
+      window.history.pushState(null, '', window.location.href);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -198,191 +233,175 @@ export default function ResultPage() {
   const passFail = isPassed ? 'PASSED' : 'FAILED';
   const skillLevel = (activeResult.skill_level || (percentage >= 85 ? 'Expert' : percentage >= 70 ? 'Advanced' : percentage >= 50 ? 'Intermediate' : percentage >= 30 ? 'Beginner' : 'Foundation')) as SkillLevel;
   
-  const domainName = (activeResult as any).domain?.name ||
-    (devResult as any)?.domain_name ||
+  const rawDomainName =
     (location.state as any)?.customDomainName ||
-    (targetDomainSlug ? targetDomainSlug.charAt(0).toUpperCase() + targetDomainSlug.slice(1) : 'Technical');
+    (location.state as any)?.domainName ||
+    storedDomainName ||
+    (activeResult as any).domain?.name ||
+    (devResult as any)?.domain_name ||
+    (targetDomainSlug ? targetDomainSlug.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Assessment');
+
+  // Guard against stale Python default if targetDomainSlug is not Python
+  const domainName = (targetDomainSlug && !targetDomainSlug.includes('python') && rawDomainName.toLowerCase().includes('python'))
+    ? targetDomainSlug.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+    : rawDomainName;
 
   const timeTaken = (activeResult as any).attempt?.time_taken_seconds || (location.state as any)?.timeTakenSeconds || (devResult as any)?.attempt?.time_taken_seconds || 600;
 
 
+  const WHATSAPP_COMMUNITY_URL = 'https://chat.whatsapp.com/E3OZRJip3Gx1y0XXNmKXvo';
+
   const handleJoinBootcamp = () => {
-    navigate('/bootcamp/register', {
-      state: {
-        studentId: targetStudentId,
-        studentName,
-        domainId: targetDomainId,
-        domainName,
-        domainSlug: targetDomainSlug,
-        quizResultId: activeResult.id,
-        scorePercentage: percentage,
-        bootcampId: bootcamp?.id,
-        bootcampName: bootcamp?.name || `${domainName} Fast-Track Bootcamp`,
-      },
-    });
+    // Attempt non-blocking background registration in Supabase
+    try {
+      if (isSupabaseConfigured && targetStudentId && bootcamp?.id) {
+        registerForBootcamp(
+          bootcamp.id,
+          targetStudentId,
+          activeResult.id,
+          '06:00 PM - 07:00 PM',
+          'Upskilling & Placement Preparation',
+          {
+            preferredBatch: 'Upcoming Certified Batch',
+            mode: 'online',
+            whatsappOptIn: true,
+          }
+        ).catch((err) => console.warn('Background registration note:', err));
+      }
+    } catch {}
+
+    // Non-blocking local leads update
+    try {
+      const rawLeads = localStorage.getItem('hadescore_local_leads');
+      if (rawLeads) {
+        const leads = JSON.parse(rawLeads);
+        const found = leads.find((l: any) => l.student_id === targetStudentId);
+        if (found) {
+          found.has_registered_bootcamp = true;
+          found.lead_score = Math.max(found.lead_score, 85);
+          found.lead_status = 'HOT';
+          localStorage.setItem('hadescore_local_leads', JSON.stringify(leads));
+        }
+      }
+    } catch {}
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 pb-20">
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-8 sm:pt-12">
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-16 sm:pb-20">
+      <main className="max-w-4xl mx-auto px-3.5 sm:px-6 pt-6 sm:pt-12">
 
         {/* ── 1. SUBMISSION CONFIRMATION SECTION (NO SCORES/REMARKS) ── */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 mb-8">
+        <div className="relative z-10 bg-white rounded-3xl border border-indigo-100/90 shadow-[0_15px_45px_-12px_rgba(79,70,229,0.12)] hover:shadow-[0_20px_55px_-12px_rgba(79,70,229,0.16)] transition-all duration-300 p-5 sm:p-8 md:p-9 mb-6 sm:mb-8 overflow-hidden">
+          {/* Top Gradient Accent Strip */}
+          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-violet-600 via-indigo-600 to-emerald-400" />
           
-          {/* Header Row: Domain & Status */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50/80 border border-indigo-100 p-2.5 flex items-center justify-center shrink-0 shadow-xs">
-                {imgError ? (
-                  <Sparkles className="w-7 h-7 text-indigo-600" />
-                ) : (
-                  <img
-                    src={getDomainIconPath(targetDomainSlug, undefined, domainName)}
-                    alt={domainName}
-                    className="w-full h-full object-contain"
-                    onError={() => setImgError(true)}
-                  />
-                )}
-              </div>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-semibold text-brand-600">{domainName} Assessment</span>
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-                  Quiz Submitted!
-                </h1>
-              </div>
-            </div>
+          {/* Subtle Ambient Background Aura */}
+          <div className="absolute -top-20 -right-20 w-52 h-52 bg-gradient-to-br from-indigo-500/8 to-emerald-500/8 rounded-full blur-2xl pointer-events-none" />
 
-            {/* Status Pill */}
-            <div className="self-start sm:self-center">
-              <div
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-xs"
-                id="submission-status-badge"
-              >
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Response Recorded</span>
+          {/* Header Row: Domain & Time Taken */}
+          <div className="pb-5 sm:pb-6 border-b border-slate-100/90 relative z-10">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5 sm:gap-4.5 min-w-0">
+                <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-indigo-50 via-white to-violet-50/80 border border-indigo-100 p-1.5 sm:p-2 flex items-center justify-center shrink-0 shadow-md shadow-indigo-500/5">
+                  {imgError ? (
+                    <Sparkles className="w-7 h-7 text-indigo-600" />
+                  ) : (
+                    <img
+                      src={getDomainIconPath(targetDomainSlug, undefined, domainName)}
+                      alt={domainName}
+                      className="w-full h-full object-cover rounded-xl"
+                      onError={() => setImgError(true)}
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-slate-900 tracking-tight leading-tight">
+                    {domainName} Assessment
+                  </h1>
+                  
+                  {/* Clean Meta Tag: Time Taken */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <div
+                      className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200/80 shadow-2xs"
+                      id="time-taken-badge"
+                    >
+                      <span className="flex h-2 w-2 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span>Time Taken: <strong className="font-extrabold text-slate-900">{timeTaken ? formatTimeTaken(timeTaken) : '10m'}</strong></span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Submission Feedback & Time Taken Display */}
-          <div className="py-6 space-y-6">
-            
-            {/* Thank you & Results announcement banner */}
-            <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-50/80 via-teal-50/50 to-indigo-50/60 border border-emerald-100/90 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/20">
-                <CheckCircle2 className="w-6 h-6" />
+          {/* Submission Feedback & Results announcement banner */}
+          <div className="pt-5 sm:pt-6 relative z-10">
+            <div className="p-4 sm:p-6 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-cyan-500/10 border border-emerald-500/20 shadow-xs flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-5">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 via-emerald-500 to-teal-400 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/25">
+                <CheckCircle2 className="w-6 h-6 sm:w-7 sm:h-7 stroke-[2.5]" />
               </div>
-              <div>
-                <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
                   Thanks for submitting the quiz!
                 </h2>
-                <p className="text-slate-600 text-sm mt-1">
-                  Your assessment has been securely received. <strong className="text-slate-800 font-bold">Results will be declared soon</strong> after evaluation by our technical team.
+                <p className="text-slate-600 text-xs sm:text-sm mt-1 sm:mt-1.5 leading-relaxed font-medium">
+                  For the results, join the bootcamp! <strong className="text-slate-900 font-bold">The announcement of the results will take place during the bootcamp only.</strong>
                 </p>
               </div>
             </div>
-
-            {/* Overview Cards (Time Taken & Status Details) */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              
-              {/* Time Taken */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center gap-3.5">
-                <div className="w-11 h-11 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
-                  <Clock className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-slate-500">Time Taken</div>
-                  <div className="text-lg font-extrabold text-slate-900 mt-0.5">
-                    {timeTaken ? formatTimeTaken(timeTaken) : '10m'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Assessment Domain */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center gap-3.5">
-                <div className="w-11 h-11 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-slate-500">Domain</div>
-                  <div className="text-lg font-extrabold text-slate-900 mt-0.5 truncate">
-                    {domainName}
-                  </div>
-                </div>
-              </div>
-
-              {/* Result Declaration Status */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center gap-3.5">
-                <div className="w-11 h-11 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                  <AlertCircle className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-slate-500">Result Status</div>
-                  <div className="text-sm font-bold text-amber-800 mt-1">
-                    Declaring Soon
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-
           </div>
-
-
 
         </div>
 
-        {/* ── 2. MAIN HIGHLIGHT: HADESCORE FREE BOOTCAMP (MAN-MADE, HIGH-CONVERTING SHOWCASE) ── */}
-        <div className="bg-[#0B132B] text-white rounded-3xl p-6 sm:p-10 shadow-2xl border border-sky-900/50 mb-10 relative overflow-hidden">
+        {/* ── 2. MAIN HIGHLIGHT: HADESCORE FREE BOOTCAMP SHOWCASE ── */}
+        <div className="bg-[#0B132B] text-white rounded-2xl sm:rounded-3xl p-5 sm:p-8 md:p-10 shadow-2xl border border-sky-900/50 mb-8 sm:mb-10 relative overflow-hidden">
           
           {/* Top Brand Header */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-5 border-b border-white/10">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 p-1.5 flex items-center justify-center shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-4 sm:pb-5 border-b border-white/10">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/10 border border-white/15 p-1 sm:p-1.5 flex items-center justify-center shrink-0">
                 <img src="/logo.png" alt="Hadescore" className="w-full h-full object-contain" />
               </div>
               <div>
                 <div className="flex items-center">
-                  <span className="font-display font-black text-xs sm:text-sm tracking-tight">
-                    <span className="text-[#00D8F6]">HADES</span><span className="text-white">CORE</span> <span className="text-[#00D8F6]">PVT LTD</span>
-                  </span>
+                  <span className="font-display font-black text-sm sm:text-base tracking-tight text-[#00D8F6]">HADES</span>
+                  <span className="font-display font-black text-sm sm:text-base tracking-tight text-white">CORE</span>
+                  <span className="font-display font-black text-sm sm:text-base tracking-tight text-[#00D8F6] ml-1">PVT LTD</span>
                 </div>
-                <div className="text-[11px] text-white/60 tracking-wider">
+                <div className="text-[10px] sm:text-[11px] text-white/60 tracking-wider">
                   Learn | Build | Grow • Official Student Initiative
                 </div>
               </div>
             </div>
-
-            <div className="inline-flex items-center gap-2 bg-amber-400 text-slate-950 text-xs font-black px-3.5 py-1.5 rounded-full shadow-md">
-              <Sparkles className="w-3.5 h-3.5 fill-current" />
-              <span>100% Free Registration</span>
-            </div>
           </div>
 
           {/* Main Title & Invitation */}
-          <div className="my-6">
-            <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight">
-              Join the Free <span className="text-amber-400">{domainName}</span> Certified Bootcamp
+          <div className="my-5 sm:my-6">
+            <h2 className="text-xl sm:text-3xl md:text-4xl font-black tracking-tight text-white leading-tight">
+              Join the <span className="text-amber-400">{domainName}</span> Certified Bootcamp
             </h2>
-            <p className="text-slate-300 text-sm sm:text-base mt-2 max-w-2xl leading-relaxed">
+            <p className="text-slate-300 text-xs sm:text-sm md:text-base mt-2 max-w-2xl leading-relaxed">
               Upskill with live mentor-led sessions, build 2+ real-world portfolio projects, and qualify for our student cash prize pool and placement guidance webinar.
             </p>
           </div>
 
-          {/* HIGH IMPACT CTA BUTTON */}
+          {/* HIGH IMPACT CTA BUTTON - Direct WhatsApp Community Link */}
           <div className="flex items-center justify-center pt-2">
-            <Button
-              size="lg"
+            <a
+              href={WHATSAPP_COMMUNITY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={handleJoinBootcamp}
-              className="w-full sm:w-auto h-14 px-12 text-base sm:text-lg font-black bg-amber-400 hover:bg-amber-300 active:bg-amber-500 text-slate-950 rounded-2xl shadow-xl shadow-amber-400/20 hover:shadow-amber-400/30 gap-3 cursor-pointer transition-all transform hover:-translate-y-0.5 shrink-0 border-0"
-              id="join-free-bootcamp-btn"
+              className="inline-flex items-center justify-center w-full sm:w-auto h-12 sm:h-14 px-8 sm:px-12 text-sm sm:text-base md:text-lg font-bold bg-[#4F46E5] hover:bg-[#4338CA] active:bg-[#3730A3] text-white rounded-xl sm:rounded-2xl shadow-xl shadow-indigo-600/30 hover:shadow-indigo-600/50 gap-2 sm:gap-3 cursor-pointer transition-all transform hover:-translate-y-0.5 shrink-0 border-0 no-underline"
+              id="join-bootcamp-btn"
             >
-              <span>Join Free Bootcamp Now</span>
-              <ArrowRight className="w-5 h-5 text-slate-950" />
-            </Button>
+              <span>Join Bootcamp Now</span>
+              <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            </a>
           </div>
 
         </div>

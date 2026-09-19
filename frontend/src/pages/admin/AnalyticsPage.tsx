@@ -19,6 +19,7 @@ import {
   type BreakdownRow,
 } from '@/services/adminService';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
+import { getStudentDomainDisplay } from '@/lib/domainHelper';
 import {
   XAxis,
   YAxis,
@@ -128,7 +129,7 @@ export default function AdminAnalyticsPage({ defaultPeriod }: AdminAnalyticsPage
         // Domain stats
         const dCounts: Record<string, number> = {};
         students.forEach((s: any) => {
-          const name = s.preferred_domain?.name || 'General';
+          const name = getStudentDomainDisplay(s).name;
           dCounts[name] = (dCounts[name] || 0) + 1;
         });
         setDomainStats(Object.entries(dCounts).map(([name, count]) => ({ name, count })));

@@ -28,6 +28,7 @@ import { getDashboardStats, getLeadsByDay, getDomainPopularity } from '@/service
 import { getLocalStudents } from '@/services/studentService';
 import { getLocalLeads } from '@/services/leadService';
 import supabase, { isSupabaseConfigured } from '@/lib/supabase';
+import { getStudentDomainDisplay } from '@/lib/domainHelper';
 import { subscribeToDataChanges } from '@/lib/sync';
 import type { DashboardStats } from '@/types';
 
@@ -99,7 +100,7 @@ export default function AdminDashboardPage() {
         // Dynamic domain popularity
         const domainCounts: Record<string, number> = {};
         localStudents.forEach((s) => {
-          const dName = s.preferred_domain?.name || 'General';
+          const dName = getStudentDomainDisplay(s).name;
           domainCounts[dName] = (domainCounts[dName] || 0) + 1;
         });
 

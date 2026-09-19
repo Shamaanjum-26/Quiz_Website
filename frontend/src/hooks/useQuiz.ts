@@ -39,6 +39,11 @@ export function useQuiz(attemptId: string, domainSlug: string, studentId: string
   const selectAnswer = useCallback(
     (questionId: string, optionId: string | null) => {
       setState((prev) => {
+        // Enforce quiz rule: once an answer is submitted/chosen, it cannot be changed
+        if (prev.answers[questionId]) {
+          return prev;
+        }
+        if (!optionId) return prev;
         const newAnswers = { ...prev.answers, [questionId]: optionId };
         persistQuizState({
           attemptId,

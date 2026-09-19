@@ -144,7 +144,14 @@ export default function RegisterPage() {
     if (isCustomDomain) {
       chosenName = customDomainText.trim();
       chosenSlug = chosenName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      targetDomainId = undefined;
+      // Match against known domains if possible (e.g. "civil" -> "civil-eng")
+      const matched = TECH_DOMAINS.find((d) =>
+        d.slug.toLowerCase().includes(chosenSlug) ||
+        chosenSlug.includes(d.slug.toLowerCase()) ||
+        d.name.toLowerCase().includes(chosenName.toLowerCase()) ||
+        d.id.toLowerCase().includes(chosenSlug)
+      );
+      targetDomainId = matched ? matched.id : chosenSlug;
     }
 
     setIsLoading(true);
@@ -181,7 +188,9 @@ export default function RegisterPage() {
       const { student, isNew } = await createOrGetStudent({
         ...data,
         mobile: cleanMobile,
-        preferred_domain_id: targetDomainId && targetDomainId !== 'custom' ? targetDomainId : undefined,
+        preferred_domain_id: targetDomainId && targetDomainId !== 'custom' ? targetDomainId : chosenSlug,
+        preferred_domain_name: chosenName,
+        campaign_code: `domain:${chosenName}`,
         linkedin_url: data.linkedin_url || undefined,
       });
 
@@ -213,37 +222,59 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-50 via-indigo-50/40 to-violet-50/40 py-10 sm:py-16">
+    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-50 via-indigo-50/40 to-violet-50/40 py-6 sm:py-12 md:py-16">
       {/* Interactive Dynamic Animated Background Orbs */}
-      <div className="absolute -top-24 -left-24 w-96 h-96 bg-gradient-to-br from-violet-400/25 to-fuchsia-400/20 rounded-full blur-3xl pointer-events-none animate-pulse duration-1000" />
-      <div className="absolute top-1/3 -right-28 w-96 h-96 bg-gradient-to-bl from-sky-400/20 to-indigo-500/20 rounded-full blur-3xl pointer-events-none animate-pulse delay-700 duration-1000" />
-      <div className="absolute -bottom-28 left-1/3 w-80 h-80 bg-gradient-to-tr from-emerald-400/15 to-cyan-400/20 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -top-24 -left-24 w-72 sm:w-96 h-72 sm:h-96 bg-gradient-to-br from-violet-400/25 to-fuchsia-400/20 rounded-full blur-3xl pointer-events-none animate-pulse duration-1000" />
+      <div className="absolute top-1/3 -right-28 w-72 sm:w-96 h-72 sm:h-96 bg-gradient-to-bl from-sky-400/20 to-indigo-500/20 rounded-full blur-3xl pointer-events-none animate-pulse delay-700 duration-1000" />
+      <div className="absolute -bottom-28 left-1/3 w-64 sm:w-80 h-64 sm:h-80 bg-gradient-to-tr from-emerald-400/15 to-cyan-400/20 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 relative z-10">
-        {/* Header */}
-        <div className="text-center mb-8 relative z-10">
-          <h1 className="font-display font-black text-4xl sm:text-6xl tracking-tight mb-3 flex items-center justify-center gap-3">
-            <span className="bg-gradient-to-r from-violet-600 via-indigo-600 to-sky-500 bg-clip-text text-transparent drop-shadow-xs">
+      <div className="max-w-2xl mx-auto px-3.5 sm:px-6 relative z-10">
+        {/* Super Interactive Header */}
+        <div className="text-center mb-6 sm:mb-8 relative z-10">
+          <h1 className="font-display font-black text-3xl sm:text-5xl md:text-6xl tracking-tight mb-2 sm:mb-3 flex items-center justify-center gap-3 sm:gap-4 flex-wrap">
+            <span className="animate-gradient-flow bg-gradient-to-r from-violet-600 via-indigo-600 via-fuchsia-500 via-sky-500 to-violet-600 bg-[length:250%_auto] bg-clip-text text-transparent drop-shadow-[0_4px_24px_rgba(99,102,241,0.22)] select-none hover:scale-[1.03] transition-transform duration-300 cursor-default">
               Let’s Quiz!
             </span>
-            <span className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-violet-600 via-indigo-600 to-cyan-400 text-white shadow-lg shadow-indigo-500/30 transform hover:scale-125 hover:rotate-12 transition-all duration-300 cursor-pointer animate-bounce">
-              <Sparkles className="w-6 h-6 text-amber-300" />
-            </span>
+
+            {/* 3D Super Interactive Levitating Sparkles Badge */}
+            <div
+              className="relative group cursor-pointer inline-flex items-center justify-center"
+              title="Click for good luck!"
+              onClick={() => {
+                toast({
+                  title: "✨ Best of Luck!",
+                  description: "Give your 100% and test your real skills. You got this!",
+                });
+              }}
+            >
+              {/* Outer Glowing Halo Pulse */}
+              <div className="absolute -inset-1.5 sm:-inset-2 bg-gradient-to-r from-violet-600 via-fuchsia-500 to-cyan-400 rounded-2xl sm:rounded-3xl blur-md sm:blur-lg opacity-60 group-hover:opacity-100 animate-halo-pulse transition duration-500 pointer-events-none" />
+
+              {/* Levitating Main Badge Box */}
+              <div className="relative inline-flex items-center justify-center w-10 h-10 sm:w-13 sm:h-13 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-violet-600 via-indigo-600 to-cyan-400 text-white shadow-xl shadow-indigo-500/35 transform animate-badge-levitate group-hover:scale-115 group-hover:rotate-12 active:scale-95 transition-all duration-300 shrink-0 border border-white/40 backdrop-blur-sm overflow-hidden">
+                <Sparkles className="w-5 h-5 sm:w-7 sm:h-7 text-amber-300 animate-sparkle-twinkle drop-shadow-[0_2px_8px_rgba(253,224,71,0.7)]" />
+
+                {/* Glass Light Reflection Sweep */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 pointer-events-none" />
+              </div>
+
+              {/* Tiny Orbiting Accent Dot */}
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-white shadow-xs animate-ping duration-1000 pointer-events-none" />
+            </div>
           </h1>
-          <p className="text-slate-600 text-base sm:text-lg max-w-lg mx-auto font-medium">
+
+          <p className="text-slate-600 text-xs sm:text-base md:text-lg max-w-lg mx-auto font-medium px-2 leading-relaxed">
             Fill in your details to begin your assessment and test your skills.
           </p>
         </div>
 
-
-
         {/* Existing student notice */}
         {isExisting && (
-          <div className="mb-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-3 shadow-xs">
+          <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-3 shadow-xs">
             <UserCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
             <div>
               <p className="font-semibold text-emerald-800 text-sm">Welcome Back!</p>
-              <p className="text-emerald-700 text-sm mt-1">
+              <p className="text-emerald-700 text-xs sm:text-sm mt-0.5">
                 We found your existing account. Continuing your journey.
               </p>
             </div>
@@ -251,13 +282,13 @@ export default function RegisterPage() {
         )}
 
         {/* Form Card (Interactive Glassmorphic Container) */}
-        <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-3xl border border-indigo-100/90 shadow-[0_20px_60px_-15px_rgba(79,70,229,0.12)] hover:shadow-[0_25px_70px_-15px_rgba(79,70,229,0.18)] transition-all duration-300">
+        <div className="relative z-10 bg-white/95 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-indigo-100/90 shadow-[0_10px_35px_-10px_rgba(79,70,229,0.12)] sm:shadow-[0_20px_60px_-15px_rgba(79,70,229,0.12)] hover:shadow-[0_25px_70px_-15px_rgba(79,70,229,0.18)] transition-all duration-300">
           {/* Top Vibrant Accent Bar */}
-          <div className="h-1.5 w-full bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-400 rounded-t-3xl" />
+          <div className="h-1.5 w-full bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-400 rounded-t-2xl sm:rounded-t-3xl" />
           
-          <div className="p-6 sm:p-10">
+          <div className="p-4 sm:p-8 md:p-10">
             <form onSubmit={handleSubmit(onFormSubmit)} noValidate>
-              <div className="space-y-5">
+              <div className="space-y-4 sm:space-y-5">
                 {/* Full Name */}
                 <div className="space-y-1.5">
                   <Label htmlFor="full_name" className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
@@ -394,7 +425,7 @@ export default function RegisterPage() {
 
                   {/* Clean Dropdown Popover */}
                   {isAcademicYearOpen && (
-                    <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden p-1.5 space-y-0.5 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden p-1.5 space-y-0.5 animate-in fade-in zoom-in-95 duration-150 max-h-56 sm:max-h-60 overflow-y-auto">
                       {ACADEMIC_YEARS.map((y) => {
                         const isSelected = selectedAcademicYear === y;
                         return (
@@ -446,7 +477,6 @@ export default function RegisterPage() {
                           }
                         }}
                         className="bg-white border-purple-300 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/15 rounded-xl text-sm"
-                        autoFocus
                       />
                       {otherAcademicYearError && (
                         <p className="text-xs text-red-600 flex items-center gap-1">
@@ -503,7 +533,7 @@ export default function RegisterPage() {
 
                   {/* Simple Clean Dropdown Popover */}
                   {isDomainPickerOpen && (
-                    <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden py-1 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden py-1 animate-in fade-in zoom-in-95 duration-150">
                       {/* Minimal Inline Search */}
                       <div className="px-3.5 py-2 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50">
                         <Search className="w-4 h-4 text-slate-400 shrink-0" />
@@ -513,7 +543,6 @@ export default function RegisterPage() {
                           onChange={(e) => setDomainSearch(e.target.value)}
                           placeholder="Search domain..."
                           className="w-full text-sm text-slate-800 placeholder:text-slate-400 bg-transparent outline-none font-medium"
-                          autoFocus
                         />
                         {domainSearch && (
                           <button
@@ -527,7 +556,10 @@ export default function RegisterPage() {
                       </div>
 
                       {/* Scrollable Domains List */}
-                      <div className="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
+                      <div 
+                        className="max-h-[380px] sm:max-h-[440px] overflow-y-auto p-1.5 space-y-0.5"
+                        style={{ maxHeight: '380px' }}
+                      >
                         {/* Clean "Others" Option at the top */}
                         {(!domainSearch.trim() || 'others'.includes(domainSearch.toLowerCase().trim())) && (
                           <button
@@ -640,7 +672,6 @@ export default function RegisterPage() {
                             ? 'border-red-400 focus:border-red-500 focus:ring-4 focus:ring-red-500/15'
                             : 'border-slate-200 hover:border-slate-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15'
                         }`}
-                        autoFocus
                         required
                       />
                       {customDomainError && (
@@ -661,15 +692,15 @@ export default function RegisterPage() {
                 <input type="hidden" {...register('utm_term')} value={utm.utm_term} />
 
                 {/* Consent (Simplified) */}
-                <div className="flex items-start gap-3 p-4 rounded-2xl bg-indigo-50/50 hover:bg-indigo-50/80 border border-indigo-100/90 transition-colors cursor-pointer">
+                <div className="flex items-center gap-3 p-3.5 sm:p-4 rounded-xl sm:rounded-2xl bg-indigo-50/50 hover:bg-indigo-50/80 border border-indigo-100/90 transition-colors cursor-pointer">
                   <input
                     id="consent"
                     type="checkbox"
                     {...register('consent')}
-                    className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 accent-indigo-600 cursor-pointer"
+                    className="w-4 h-4 sm:w-5 sm:h-5 rounded border-slate-300 text-indigo-600 accent-indigo-600 cursor-pointer shrink-0"
                     aria-describedby={errors.consent ? 'consent_error' : undefined}
                   />
-                  <label htmlFor="consent" className="text-xs sm:text-sm text-slate-700 font-medium cursor-pointer leading-relaxed">
+                  <label htmlFor="consent" className="text-xs sm:text-sm text-slate-700 font-medium cursor-pointer leading-relaxed select-none">
                     I agree to start the skill assessment and receive my score report.
                   </label>
                 </div>
@@ -684,7 +715,7 @@ export default function RegisterPage() {
                 <Button
                   type="submit"
                   size="lg"
-                  className="w-full h-13 text-base font-black bg-gradient-to-r from-violet-600 via-indigo-600 to-sky-500 hover:from-violet-500 hover:via-indigo-500 hover:to-sky-400 text-white rounded-2xl shadow-xl shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:-translate-y-0.5 active:translate-y-0 gap-2.5 cursor-pointer group transition-all duration-200 border-0"
+                  className="w-full h-12 sm:h-13 text-sm sm:text-base font-black bg-gradient-to-r from-violet-600 via-indigo-600 to-sky-500 hover:from-violet-500 hover:via-indigo-500 hover:to-sky-400 text-white rounded-xl sm:rounded-2xl shadow-xl shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:-translate-y-0.5 active:translate-y-0 gap-2 sm:gap-2.5 cursor-pointer group transition-all duration-200 border-0"
                   disabled={isLoading}
                   id="register-submit-btn"
                 >
@@ -696,7 +727,7 @@ export default function RegisterPage() {
                   ) : (
                     <>
                       <span>Continue to Quiz</span>
-                      <ArrowRight className="w-5 h-5 group-hover:translate-x-1.5 transition-transform duration-200" />
+                      <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1.5 transition-transform duration-200" />
                     </>
                   )}
                 </Button>

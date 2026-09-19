@@ -101,46 +101,46 @@ export default function SkillReportPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero */}
-      <div className="page-hero py-12">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
-          <div className="flex justify-center mb-4">
+      <div className="page-hero py-8 sm:py-12">
+        <div className="max-w-4xl mx-auto px-3.5 sm:px-6 text-center">
+          <div className="flex justify-center mb-3 sm:mb-4">
             <img
               src={getDomainIconPath((domain as any)?.slug || domain?.name, domain?.icon)}
               alt={domain?.name || 'Skill'}
-              className="w-16 h-16 rounded-2xl object-contain shadow-lg bg-white/10 p-2 backdrop-blur-xs"
+              className="w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl object-contain shadow-lg bg-white/10 p-2 backdrop-blur-xs"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = '/domains/default.png';
               }}
             />
           </div>
-          <h1 className="font-display font-bold text-3xl sm:text-4xl text-white mb-2">
+          <h1 className="font-display font-bold text-2xl sm:text-4xl text-white mb-2 tracking-tight">
             Your {domain?.name || 'Skill'} Report
           </h1>
-          <p className="text-white/70">Personalized insights based on your assessment results</p>
+          <p className="text-white/70 text-xs sm:text-base">Personalized insights based on your assessment results</p>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
+      <div className="max-w-4xl mx-auto px-3.5 sm:px-6 py-6 sm:py-10">
         {/* Score overview */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 mb-6 flex flex-col sm:flex-row items-center gap-8">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-8 mb-6 flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
           <ScoreGauge percentage={percentage} skillLevel={skillLevel} size="md" />
           <div className="flex-1 text-center sm:text-left">
-            <h2 className="font-display font-bold text-2xl text-gray-900 mb-1">
+            <h2 className="font-display font-bold text-xl sm:text-2xl text-gray-900 mb-1">
               {skillLevel} Level
             </h2>
-            <p className="text-gray-500 mb-4">
+            <p className="text-gray-500 text-xs sm:text-sm mb-4">
               You answered{' '}
               <strong className="text-gray-800">{result.correct_answers as number} out of {result.total_questions as number}</strong>{' '}
               questions correctly.
             </p>
             <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
-              <span className="px-3 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full text-sm font-medium">
+              <span className="px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-full text-xs sm:text-sm font-medium">
                 ✓ {result.correct_answers as number} Correct
               </span>
-              <span className="px-3 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-sm font-medium">
+              <span className="px-2.5 py-1 bg-red-50 text-red-700 border border-red-200 rounded-full text-xs sm:text-sm font-medium">
                 ✗ {result.incorrect_answers as number} Incorrect
               </span>
-              <span className="px-3 py-1 bg-gray-50 text-gray-700 border border-gray-200 rounded-full text-sm font-medium">
+              <span className="px-2.5 py-1 bg-gray-50 text-gray-700 border border-gray-200 rounded-full text-xs sm:text-sm font-medium">
                 — {result.unanswered as number} Unanswered
               </span>
             </div>

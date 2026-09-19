@@ -197,39 +197,39 @@ export default function BootcampRegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 py-10 sm:py-16">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 py-6 sm:py-12 md:py-16">
+      <div className="max-w-2xl mx-auto px-3.5 sm:px-6">
 
         {/* Back Link */}
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-brand-600 mb-6 cursor-pointer transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-brand-600 mb-4 sm:mb-6 cursor-pointer transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to Result
         </button>
 
         {/* Card */}
-        <div className="bg-white rounded-3xl border border-gray-100 shadow-xl shadow-indigo-100/30 overflow-hidden">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-gray-100 shadow-xl shadow-indigo-100/30 overflow-hidden">
           
           {/* Card Header Banner */}
-          <div className="bg-gradient-to-r from-[#0b1c38] via-[#092b5e] to-[#041226] p-6 sm:p-8 text-white relative">
-            <div className="flex items-center gap-2 mb-3">
-              <img src="/logo.png" alt="Hadescore" className="w-5 h-5 object-contain" />
+          <div className="bg-gradient-to-r from-[#0b1c38] via-[#092b5e] to-[#041226] p-4 sm:p-6 md:p-8 text-white relative">
+            <div className="flex items-center gap-2 mb-2.5 sm:mb-3">
+              <img src="/logo.png" alt="Hadescore" className="w-4 h-4 sm:w-5 sm:h-5 object-contain" />
               <span className="font-display font-black text-xs sm:text-sm tracking-tight">
                 <span className="text-[#00D8F6]">HADES</span><span className="text-white">CORE</span> <span className="text-[#00D8F6]">PVT LTD</span>
               </span>
               <span className="text-white/30">•</span>
-              <span className="text-[10px] text-white/70 uppercase tracking-widest">
+              <span className="text-[9px] sm:text-[10px] text-white/70 uppercase tracking-widest">
                 Learn | Build | Grow
               </span>
             </div>
 
-            <div className="flex items-start gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/20 p-2 shrink-0 flex items-center justify-center">
+            <div className="flex items-start gap-3 sm:gap-4">
+              <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-white/10 border border-white/20 p-1.5 sm:p-2 shrink-0 flex items-center justify-center">
                 {imgError ? (
-                  <Sparkles className="w-7 h-7 text-[#00D8F6]" />
+                  <Sparkles className="w-6 h-6 sm:w-7 sm:h-7 text-[#00D8F6]" />
                 ) : (
                   <img
                     src={getDomainIconPath(domainSlug || domainName, undefined, domainName)}
@@ -239,32 +239,32 @@ export default function BootcampRegisterPage() {
                   />
                 )}
               </div>
-              <div>
-                <h1 className="font-display font-extrabold text-2xl sm:text-3xl text-white mb-1.5">
-                  Join the Free {domainName} Bootcamp
+              <div className="min-w-0">
+                <h1 className="font-display font-extrabold text-xl sm:text-2xl md:text-3xl text-white mb-1 leading-tight">
+                  Join the {domainName} Certified Bootcamp
                 </h1>
-                <p className="text-gray-300 text-xs sm:text-sm">
-                  We already have your verified profile! Simply pick your schedule preferences to reserve your free seat.
+                <p className="text-gray-300 text-xs sm:text-sm leading-relaxed">
+                  We already have your verified profile! Simply pick your schedule preferences to confirm your seat.
                 </p>
               </div>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-5">
+          <form onSubmit={handleSubmit} className="p-4 sm:p-8 space-y-4 sm:space-y-5">
 
             {/* ── 1. PRE-FILLED STUDENT PROFILE (READ-ONLY BADGES) ── */}
-            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5">
-              <div className="flex items-center justify-between mb-3">
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl sm:rounded-2xl p-3.5 sm:p-5">
+              <div className="flex items-center justify-between mb-2.5 sm:mb-3">
                 <span className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
                   Verified Student Profile
                 </span>
-                <span className="text-[11px] font-medium text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">
+                <span className="text-[10px] sm:text-[11px] font-medium text-emerald-700 bg-emerald-100/80 px-2 sm:px-2.5 py-0.5 rounded-full">
                   ✓ Pre-filled
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs">
                 <div>
                   <span className="text-gray-500">Student Name:</span>
                   <div className="font-semibold text-gray-900 mt-0.5">{studentInfo.name}</div>
@@ -288,25 +288,22 @@ export default function BootcampRegisterPage() {
               </div>
             </div>
 
-
-
-
             {/* ── SUBMIT BUTTON ─────────────────────────────────── */}
             <Button
               type="submit"
               size="lg"
               disabled={isSubmitting}
-              className="w-full h-13 text-base font-bold bg-brand-600 hover:bg-brand-700 text-white rounded-xl shadow-lg shadow-brand-500/20 gap-2 cursor-pointer transition-all"
+              className="w-full h-12 sm:h-13 text-sm sm:text-base font-bold bg-brand-600 hover:bg-brand-700 text-white rounded-xl sm:rounded-2xl shadow-lg shadow-brand-500/20 gap-2 cursor-pointer transition-all"
               id="submit-bootcamp-registration-btn"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Reserving Your Free Seat...
+                  Confirming Your Seat...
                 </>
               ) : (
                 <>
-                  Register for Free Bootcamp 🚀
+                  Register for Bootcamp 🚀
                 </>
               )}
             </Button>

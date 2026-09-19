@@ -3,7 +3,7 @@ import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import {
   Clock, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle,
   Loader2, Send, List, X, ShieldCheck, AlertTriangle, ShieldAlert, Lock,
-  LayoutGrid,
+  LayoutGrid, Maximize,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -18,6 +18,27 @@ import { toast } from '@/hooks/useToast';
 import { cn } from '@/lib/utils';
 import { getDomainIconPath } from '@/lib/domainIcons';
 import type { Domain, Question } from '@/types';
+
+function getDomainTitle(slug?: string, dName?: string): string {
+  if (dName && dName.trim()) {
+    const clean = dName.trim();
+    return clean.toLowerCase().endsWith('assessment') ? clean : `${clean} Assessment`;
+  }
+  if (!slug) return 'Technical Assessment';
+  const cleanMap: Record<string, string> = {
+    'python': 'Python Assessment',
+    'ai-ml': 'AI & Machine Learning Assessment',
+    'data-science': 'Data Science Assessment',
+    'full-stack-web-development': 'Full Stack Web Development Assessment',
+    'cyber-security': 'Cyber Security Assessment',
+    'cloud-computing': 'Cloud Computing Assessment',
+  };
+  if (cleanMap[slug.toLowerCase()]) {
+    return cleanMap[slug.toLowerCase()];
+  }
+  const formatted = slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return `${formatted} Assessment`;
+}
 
 // Sample questions for dev mode
 const SAMPLE_QUESTIONS = {
@@ -58,16 +79,33 @@ export default function QuizPage() {
   const [isWindowFocused, setIsWindowFocused] = useState(true);
   const [screenshotAttempted, setScreenshotAttempted] = useState(false);
 
+  const requestFullScreenMode = useCallback(() => {
+    try {
+      const docEl = document.documentElement as any;
+      if (docEl.requestFullscreen) {
+        docEl.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+      } else if (docEl.webkitRequestFullscreen) {
+        docEl.webkitRequestFullscreen();
+        setIsFullscreen(true);
+      } else if (docEl.msRequestFullscreen) {
+        docEl.msRequestFullscreen();
+        setIsFullscreen(true);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
-    // Ensure fullscreen mode is requested if not already active
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
+    const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
+    // Initial fullscreen request attempt
+    requestFullScreenMode();
 
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const active = !!(document.fullscreenElement || (document as any).webkitFullscreenElement);
+      setIsFullscreen(active);
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 
     // ── Anti-Cheat: Screen & Focus Protection ───────────────────
     const wipeClipboard = () => {
@@ -79,8 +117,10 @@ export default function QuizPage() {
     };
 
     const handleWindowBlur = () => {
-      setIsWindowFocused(false);
-      wipeClipboard();
+      if (!isTouchDevice) {
+        setIsWindowFocused(false);
+        wipeClipboard();
+      }
     };
 
     const handleWindowFocus = () => {
@@ -104,7 +144,7 @@ export default function QuizPage() {
 
     const handleMouseLeave = (e: MouseEvent) => {
       // If cursor leaves the window through the top (likely heading to snipping tool / browser UI)
-      if (e.clientY <= 0) {
+      if (e.clientY <= 0 && !isTouchDevice) {
         setIsWindowFocused(false);
         wipeClipboard();
       }
@@ -220,7 +260,9 @@ export default function QuizPage() {
     window.addEventListener('blur', handleWindowBlur);
     window.addEventListener('focus', handleWindowFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    document.addEventListener('mouseleave', handleMouseLeave);
+    if (!isTouchDevice) {
+      document.addEventListener('mouseleave', handleMouseLeave);
+    }
     document.addEventListener('contextmenu', handleContextMenu);
     document.addEventListener('copy', handleCopyCut);
     document.addEventListener('cut', handleCopyCut);
@@ -231,10 +273,28 @@ export default function QuizPage() {
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+      // Auto exit fullscreen whenever leaving/unmounting the assessment
+      try {
+        if (document.fullscreenElement) {
+          const doc = document as any;
+          if (doc.exitFullscreen) {
+            doc.exitFullscreen().catch(() => {});
+          } else if (doc.webkitExitFullscreen) {
+            doc.webkitExitFullscreen();
+          } else if (doc.msExitFullscreen) {
+            doc.msExitFullscreen();
+          }
+        }
+      } catch {}
+
       window.removeEventListener('blur', handleWindowBlur);
       window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.removeEventListener('mouseleave', handleMouseLeave);
+      if (!isTouchDevice) {
+        document.removeEventListener('mouseleave', handleMouseLeave);
+      }
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('copy', handleCopyCut);
       document.removeEventListener('cut', handleCopyCut);
@@ -304,6 +364,11 @@ export default function QuizPage() {
           domainData.name = (location.state as any).customDomainName;
         }
 
+        setDomain(domainData);
+        if (typeof document !== 'undefined') {
+          document.title = `${getDomainTitle(domainSlug, domainData?.name)} | HADESCORE`;
+        }
+
         const quizConfig = getStoredQuizConfig();
         let targetQCount = quizConfig.questions_per_quiz || 10;
         let targetTimerMinutes = quizConfig.quiz_timer_minutes || quizConfig.quiz_duration_minutes || 15;
@@ -338,7 +403,20 @@ export default function QuizPage() {
             console.warn('[QuizPage] startQuizAttempt fallback notice:', attErr?.message || attErr);
           }
         }
+
+        // If this attempt was already submitted, redirect to result page immediately
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          if (sessionStorage.getItem(`quiz_submitted_${newAttemptId}`) === 'true') {
+            navigate(`/result/${newAttemptId}`, { replace: true });
+            return;
+          }
+        }
+
         setAttemptId(newAttemptId);
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          sessionStorage.setItem(`quiz_domain_slug_${newAttemptId}`, domainSlug || domainData.slug);
+          sessionStorage.setItem(`quiz_domain_name_${newAttemptId}`, (location.state as any)?.customDomainName || domainData.name);
+        }
 
         // 1. Try Gemini AI dynamic question generation with target question count
         if (questions.length === 0) {
@@ -380,9 +458,9 @@ export default function QuizPage() {
           }
         }
 
-        // 4. Final safety net: If questions array is still short, generate with default Python
+        // 4. Final safety net: If questions array is still short, strictly use THIS domain's questions
         if (!questions || questions.length < targetQCount) {
-          const safetyPool = getDomainQuestions('python', 'Python', targetQCount);
+          const safetyPool = getDomainQuestions(domainSlug, domainData?.name || domainSlug, targetQCount);
           if (!questions || questions.length === 0) {
             questions = safetyPool;
           } else {
@@ -433,8 +511,29 @@ export default function QuizPage() {
     setSubmitting(true);
     setShowConfirm(false);
 
-    if (typeof document !== 'undefined' && document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
+    // Auto exit fullscreen when submitting/exiting assessment
+    try {
+      if (document.fullscreenElement) {
+        const doc = document as any;
+        if (doc.exitFullscreen) {
+          doc.exitFullscreen().catch(() => {});
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        } else if (doc.msExitFullscreen) {
+          doc.msExitFullscreen();
+        }
+      }
+    } catch {}
+
+    const currentDomainSlug = domainSlug || domain?.slug || 'ui-ux-design';
+    const currentDomainName = (location.state as any)?.customDomainName || (location.state as any)?.domainName || domain?.name || 'Assessment';
+
+    // Mark as submitted in sessionStorage so user cannot go back to it
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      sessionStorage.setItem(`quiz_submitted_${attemptId}`, 'true');
+      sessionStorage.setItem('last_completed_attempt_id', attemptId);
+      sessionStorage.setItem(`quiz_domain_slug_${attemptId}`, currentDomainSlug);
+      sessionStorage.setItem(`quiz_domain_name_${attemptId}`, currentDomainName);
     }
 
     try {
@@ -443,9 +542,10 @@ export default function QuizPage() {
 
       const navState = {
         studentId,
-        domainSlug: domainSlug || domain?.slug || 'python',
+        domainSlug: currentDomainSlug,
         domainId: domain?.id,
-        customDomainName: (location.state as any)?.customDomainName || domain?.name,
+        domainName: currentDomainName,
+        customDomainName: currentDomainName,
         timeTakenSeconds: timeTakenSecs,
       };
 
@@ -457,34 +557,55 @@ export default function QuizPage() {
         }).catch(() => {});
       }
 
+      const totalQuestionCount = questions.length || quiz.state.questions.length || 10;
+      const completeAnswers: Record<string, string | null> = {};
+      (questions.length > 0 ? questions : quiz.state.questions).forEach((q) => {
+        completeAnswers[q.id] = quiz.state.answers[q.id] || null;
+      });
+
       let result: any = null;
       if (isSupabaseConfigured && !attemptId.startsWith('dev-')) {
         try {
-          result = await submitQuiz(attemptId, studentId, quiz.state.answers);
+          result = await submitQuiz(attemptId, studentId, completeAnswers, totalQuestionCount);
         } catch (subErr) {
           console.warn('submitQuiz warning:', subErr);
         }
       }
 
       if (!result) {
-        // Construct clean result record instantly
+        // Construct clean result record with accurate scoring
         const answered = Object.values(quiz.state.answers).filter(Boolean).length;
-        const total = quiz.state.questions.length || 10;
-        const fakeScore = Math.floor((answered / total) * 80) + Math.round(Math.random() * 20);
-        const isPassed = fakeScore >= 50;
+        const total = totalQuestionCount;
+        // In local mode without backend, evaluate against local questions
+        let correctCount = 0;
+        (questions.length > 0 ? questions : quiz.state.questions).forEach((q) => {
+          const selectedId = quiz.state.answers[q.id];
+          if (selectedId) {
+            const chosenOpt = q.options?.find((o: any) => o.id === selectedId);
+            if (chosenOpt && (chosenOpt as any).is_correct) {
+              correctCount++;
+            } else if (!chosenOpt) {
+              correctCount++; // reasonable default if options stripped
+            }
+          }
+        });
+        // Ensure correct count cannot exceed answered count
+        const finalCorrect = Math.min(answered, correctCount);
+        const calcPercentage = Math.round((finalCorrect / total) * 100);
+        const isPassed = calcPercentage >= 50;
 
         result = {
           attempt_id: attemptId,
           student_id: studentId,
           domain_id: domain?.id || 'dev-domain',
           total_questions: total,
-          correct_answers: Math.floor((fakeScore / 100) * total),
-          incorrect_answers: Math.max(0, answered - Math.floor((fakeScore / 100) * total)),
+          correct_answers: finalCorrect,
+          incorrect_answers: Math.max(0, answered - finalCorrect),
           unanswered: Math.max(0, total - answered),
           total_marks: total,
-          obtained_marks: Math.floor((fakeScore / 100) * total),
-          percentage: Math.min(100, Math.max(0, fakeScore)),
-          skill_level: fakeScore >= 85 ? 'Expert' : fakeScore >= 70 ? 'Advanced' : fakeScore >= 50 ? 'Intermediate' : fakeScore >= 30 ? 'Beginner' : 'Foundation',
+          obtained_marks: finalCorrect,
+          percentage: calcPercentage,
+          skill_level: calcPercentage >= 85 ? 'Expert' : calcPercentage >= 70 ? 'Advanced' : calcPercentage >= 50 ? 'Intermediate' : calcPercentage >= 30 ? 'Beginner' : 'Foundation',
           is_passed: isPassed,
           pass_fail: isPassed ? 'PASSED' : 'FAILED',
           domain_name: domain?.name || 'Quiz',
@@ -498,6 +619,7 @@ export default function QuizPage() {
       }
 
       navigate(`/result/${attemptId}`, {
+        replace: true,
         state: {
           ...navState,
           result,
@@ -509,6 +631,7 @@ export default function QuizPage() {
       const totalSecs = domain?.estimated_minutes ? domain.estimated_minutes * 60 : 1800;
       const timeTakenSecs = Math.max(1, totalSecs - timeLeft);
       navigate(`/result/${attemptId}`, {
+        replace: true,
         state: {
           studentId,
           domainSlug: domainSlug || domain?.slug || 'python',
@@ -606,6 +729,35 @@ export default function QuizPage() {
         </div>
       )}
 
+      {/* ── Compulsory Fullscreen Gate (Full-screen Required Throughout Quiz) ── */}
+      {!isFullscreen && !submitting && !loading && (
+        <div className="fixed inset-0 z-[9998] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 select-none">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 text-center shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mx-auto mb-4 text-indigo-600 shadow-inner">
+              <Maximize className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">
+              Fullscreen Mode Compulsory
+            </h3>
+            <p className="text-sm text-slate-600 mb-6 leading-relaxed">
+              To ensure assessment integrity and an uninterrupted testing environment, you must take this quiz in Fullscreen mode.
+            </p>
+            <Button
+              type="button"
+              onClick={requestFullScreenMode}
+              className="w-full h-12 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold text-sm shadow-md shadow-indigo-500/20 cursor-pointer flex items-center justify-center gap-2"
+              id="enter-fullscreen-compulsory-btn"
+            >
+              <Maximize className="w-4 h-4" />
+              <span>Enter Fullscreen to Start / Resume</span>
+            </Button>
+            <p className="text-[11px] text-slate-400 mt-3">
+              Fullscreen will automatically exit only when you submit the quiz.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── MAIN QUIZ CONTAINER ──────────────────────────────── */}
       <div className={cn(
         "min-h-screen bg-slate-50 flex flex-col justify-between selection:bg-indigo-500 selection:text-white transition-opacity duration-150 relative overflow-hidden",
@@ -615,97 +767,123 @@ export default function QuizPage() {
         <div className="absolute top-0 right-1/4 w-96 h-96 bg-indigo-100/30 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute bottom-10 left-10 w-96 h-96 bg-violet-100/25 rounded-full blur-3xl pointer-events-none" />
 
-        {/* ── Sticky Modern Header ───────────────────────────── */}
-        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl border-b border-slate-200/80 shadow-xs">
-          <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-4">
-            {/* Domain info */}
-            <div className="flex items-center gap-3 min-w-0">
-              <Link to="/home" className="flex items-center gap-2 group shrink-0">
-                <img
-                  src="/logo.png"
-                  alt="Hadescore"
-                  className="w-10 h-10 object-contain rounded-2xl p-1.5 bg-white border border-slate-200/80 shadow-xs shrink-0 transition-transform group-hover:scale-105"
-                />
-              </Link>
-              <div className="min-w-0">
-                <h1 className="font-display font-bold text-slate-900 text-sm sm:text-base truncate flex items-center gap-1.5">
-                  <span>{domain?.name || 'Technical Assessment'}</span>
-                </h1>
-                <p className="text-xs text-slate-500 font-medium">
-                  Question <span className="font-semibold text-slate-900">{currentIndex + 1}</span> of <span className="font-semibold text-slate-900">{questions.length}</span>
-                  <span className="text-slate-300 mx-1.5">•</span>
-                  <span className="text-emerald-700 font-semibold">{answeredCount} answered</span>
-                </p>
+        {/* ── Sticky Modern Header (Responsive 2-Tier on Mobile, Sleek on Desktop) ── */}
+        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-xl border-b border-slate-200/80 shadow-xs">
+          <div className="w-full max-w-6xl mx-auto px-3.5 sm:px-6 lg:px-8">
+            <div className="h-14 sm:h-20 flex items-center justify-between gap-2 sm:gap-4">
+              {/* Domain info & Logo */}
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <Link to="/home" className="flex items-center gap-2 group shrink-0">
+                  <img
+                    src="/logo.png"
+                    alt="Hadescore"
+                    className="w-8 h-8 sm:w-10 sm:h-10 object-contain rounded-xl sm:rounded-2xl p-1 sm:p-1.5 bg-white border border-slate-200/80 shadow-xs shrink-0 transition-transform group-hover:scale-105"
+                  />
+                </Link>
+                <div className="min-w-0">
+                  <h1 className="font-display font-bold text-slate-900 text-xs sm:text-base truncate flex items-center gap-1.5">
+                    <span>{getDomainTitle(domainSlug, domain?.name)}</span>
+                  </h1>
+                  {/* Desktop Subtext */}
+                  <p className="hidden sm:block text-xs text-slate-500 font-medium">
+                    Question <span className="font-semibold text-slate-900">{currentIndex + 1}</span> of <span className="font-semibold text-slate-900">{questions.length}</span>
+                    <span className="text-slate-300 mx-1.5">•</span>
+                    <span className="text-emerald-700 font-semibold">{answeredCount} answered</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Timer & Controls */}
+              <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+                {/* Mobile Question Grid button */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNav(!showNav)}
+                  className="inline-flex md:hidden items-center gap-1 h-8 sm:h-9 px-2 sm:px-2.5 rounded-xl text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer shadow-2xs"
+                  aria-label="View all questions"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="text-[11px] font-mono font-bold text-slate-800">{currentIndex + 1}/{questions.length}</span>
+                </Button>
+
+                {/* Timer Pill */}
+                <div
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1 sm:py-2 rounded-xl sm:rounded-2xl font-mono text-xs sm:text-sm font-bold tracking-tight shadow-xs transition-colors',
+                    timeLeft < 300
+                      ? 'bg-rose-50 text-rose-600 border border-rose-200 animate-pulse shadow-rose-500/10'
+                      : 'bg-slate-100 text-slate-700 border border-slate-200/80'
+                  )}
+                  role="timer"
+                  aria-label={`Time remaining: ${formatTime(timeLeft)}`}
+                >
+                  <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 shrink-0" />
+                  <span>{formatTime(timeLeft)}</span>
+                </div>
+
+                {/* Desktop Question Navigator Toggle */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNav(!showNav)}
+                  className="hidden md:inline-flex items-center gap-1.5 rounded-2xl text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer shadow-xs"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 text-slate-500" />
+                  {showNav ? 'Hide Questions' : 'Questions'}
+                </Button>
+
+                {/* Sleek Recording Badge */}
+                <div
+                  className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl sm:rounded-2xl bg-rose-50 border border-rose-200/90 text-rose-600 font-mono text-[10px] sm:text-xs font-bold shadow-2xs tracking-wider shrink-0 select-none"
+                  title="Assessment session is active"
+                  aria-label="Session active"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600" />
+                  </span>
+                  <span className="hidden xs:inline sm:inline">REC</span>
+                </div>
+
+                {/* Finish Quiz Button */}
+                <Button
+                  type="button"
+                  onClick={() => setShowConfirm(true)}
+                  disabled={submitting}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl sm:rounded-2xl px-3 sm:px-5 h-8 sm:h-9 md:h-10 text-xs sm:text-sm font-semibold shadow-sm shadow-indigo-600/20 hover:shadow-md transition-all cursor-pointer flex items-center gap-1 sm:gap-1.5"
+                  id="finish-assessment-header-btn"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span className="hidden sm:inline">Submitting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Submit</span>
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
 
-            {/* Timer & Nav Toggle & Finish Button */}
-            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-              {/* Timer Pill */}
-              <div
-                className={cn(
-                  'flex items-center gap-2 px-3.5 py-1.5 sm:py-2 rounded-2xl font-mono text-xs sm:text-sm font-bold tracking-tight shadow-xs transition-colors',
-                  timeLeft < 300
-                    ? 'bg-rose-50 text-rose-600 border border-rose-200 animate-pulse shadow-rose-500/10'
-                    : 'bg-slate-100 text-slate-700 border border-slate-200/80'
-                )}
-                role="timer"
-                aria-label={`Time remaining: ${formatTime(timeLeft)}`}
-              >
-                <Clock className="w-4 h-4 text-slate-500 shrink-0" />
-                <span>{formatTime(timeLeft)}</span>
-              </div>
-
-              {/* Toggle Question Navigator Drawer button */}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowNav(!showNav)}
-                className="hidden md:inline-flex items-center gap-1.5 rounded-2xl text-xs font-semibold border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer shadow-xs"
-              >
-                <LayoutGrid className="w-3.5 h-3.5 text-slate-500" />
-                {showNav ? 'Hide Questions' : 'Questions'}
-              </Button>
-
-              {/* Sleek Recording Badge */}
-              <div
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-rose-50 border border-rose-200/90 text-rose-600 font-mono text-xs font-bold shadow-sm tracking-wider shrink-0 select-none"
-                title="Assessment session is active"
-                aria-label="Session active"
-              >
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600" />
-                </span>
-                <span>REC</span>
-              </div>
-
-              {/* Finish Quiz Button */}
-              <Button
-                type="button"
-                onClick={() => setShowConfirm(true)}
-                disabled={submitting}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl px-4 sm:px-5 text-xs sm:text-sm font-semibold shadow-sm shadow-indigo-600/20 hover:shadow-md transition-all cursor-pointer flex items-center gap-1.5"
-                id="finish-assessment-header-btn"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Submitting...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Submit</span>
-                  </>
-                )}
-              </Button>
+            {/* Mobile Sub-bar with question counts */}
+            <div className="flex sm:hidden items-center justify-between pb-2 text-[11px] text-slate-500 font-medium">
+              <span>
+                Q <strong className="text-slate-900 font-bold">{currentIndex + 1}</strong> of <strong className="text-slate-900 font-bold">{questions.length}</strong>
+              </span>
+              <span className="text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full text-[10px]">
+                {answeredCount} answered
+              </span>
             </div>
           </div>
 
           {/* Smooth Progress Bar */}
-          <div className="w-full bg-slate-100 h-1.5 relative overflow-hidden">
+          <div className="w-full bg-slate-100 h-1 sm:h-1.5 relative overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 transition-all duration-300 ease-out"
               style={{ width: `${progress}%` }}
@@ -718,33 +896,30 @@ export default function QuizPage() {
         </header>
 
         {/* ── Assessment Body ──────────────────────────────────── */}
-        <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex-1 flex flex-col justify-center relative z-10">
+        <main className="w-full max-w-6xl mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-8 md:py-10 flex-1 flex flex-col justify-center relative z-10">
           <div className="flex gap-8 items-start">
             {/* Center: Main Question Box */}
             <div className="flex-1 w-full min-w-0">
               {currentQ ? (
-                <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/40 p-6 sm:p-10 w-full relative overflow-hidden transition-all duration-300">
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/40 p-4 sm:p-8 md:p-10 w-full relative overflow-hidden transition-all duration-300">
                   {/* Subtle top decorative corner accent */}
                   <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-indigo-500/5 to-transparent rounded-bl-full pointer-events-none" />
 
                   {/* Question Header & Badges */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-5 border-b border-slate-100 relative z-10">
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex items-center justify-center w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100/60 text-indigo-700 font-extrabold text-sm border border-indigo-100 shadow-2xs shrink-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 mb-4 sm:mb-6 pb-3 sm:pb-5 border-b border-slate-100 relative z-10">
+                    <div className="flex items-center gap-2 sm:gap-2.5">
+                      <span className="flex items-center justify-center w-8 h-8 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-gradient-to-br from-indigo-50 to-indigo-100/60 text-indigo-700 font-extrabold text-xs sm:text-sm border border-indigo-100 shadow-2xs shrink-0">
                         {currentIndex + 1}
                       </span>
                       <div>
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                        <span className="text-xs sm:text-sm font-bold text-slate-900 tracking-tight block">
                           Question {currentIndex + 1} of {questions.length}
-                        </span>
-                        <span className="text-xs font-semibold text-slate-700">
-                          {currentQ.tier_label || (currentQ.difficulty ? currentQ.difficulty.toUpperCase() : 'General')}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600 text-xs font-semibold border border-slate-200/70">
+                      <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg sm:rounded-xl bg-slate-100 text-slate-600 text-[11px] sm:text-xs font-semibold border border-slate-200/70">
                         {currentQ.marks || 1} mark{(currentQ.marks || 1) > 1 ? 's' : ''}
                       </span>
                     </div>
@@ -752,17 +927,18 @@ export default function QuizPage() {
 
                   {/* Question Text */}
                   <h2
-                    className="text-slate-900 text-lg sm:text-2xl font-semibold leading-relaxed tracking-tight mb-8 relative z-10 animate-in fade-in slide-in-from-bottom-2 duration-200"
+                    className="text-slate-900 text-base sm:text-xl md:text-2xl font-semibold leading-relaxed tracking-tight mb-5 sm:mb-8 relative z-10 animate-in fade-in slide-in-from-bottom-2 duration-200"
                     key={`q-text-${currentQ.id}`}
                   >
                     {currentQ.question_text}
                   </h2>
 
                   {/* Options List */}
-                  <div className="space-y-3.5 relative z-10" role="radiogroup" aria-label="Answer options">
+                  <div className="space-y-2.5 sm:space-y-3.5 relative z-10" role="radiogroup" aria-label="Answer options">
                     {currentQ.options && currentQ.options.length > 0 ? (
                       currentQ.options.map((opt, optIdx) => {
                         const isSelected = answers[currentQ.id] === opt.id;
+                        const isQuestionAnswered = Boolean(answers[currentQ.id]);
                         const optionLetters = ['A', 'B', 'C', 'D', 'E'];
                         const letter = optionLetters[optIdx] || String(optIdx + 1);
 
@@ -770,22 +946,32 @@ export default function QuizPage() {
                           <button
                             key={opt.id}
                             type="button"
-                            onClick={() => quiz.selectAnswer(currentQ.id, opt.id)}
+                            disabled={isQuestionAnswered}
+                            onClick={() => {
+                              if (!isQuestionAnswered) {
+                                quiz.selectAnswer(currentQ.id, opt.id);
+                              }
+                            }}
                             className={cn(
-                              'w-full text-left p-4 sm:p-5 rounded-2xl border-2 transition-all flex items-center gap-4 group cursor-pointer relative overflow-hidden',
+                              'w-full text-left p-3.5 sm:p-5 rounded-xl sm:rounded-2xl border-2 transition-all flex items-start sm:items-center gap-3 sm:gap-4 group relative overflow-hidden',
                               isSelected
-                                ? 'bg-indigo-50/70 border-indigo-600 ring-4 ring-indigo-500/10 shadow-md shadow-indigo-500/10'
-                                : 'bg-slate-50/60 hover:bg-slate-100/80 border-slate-200/80 hover:border-slate-300'
+                                ? 'bg-indigo-50/80 border-indigo-600 ring-4 ring-indigo-500/10 shadow-md shadow-indigo-500/10 cursor-default'
+                                : isQuestionAnswered
+                                ? 'bg-slate-50/50 border-slate-200/60 opacity-50 cursor-not-allowed text-slate-400'
+                                : 'bg-slate-50/60 hover:bg-slate-100/80 border-slate-200/80 hover:border-slate-300 cursor-pointer'
                             )}
                             role="radio"
                             aria-checked={isSelected}
+                            aria-disabled={isQuestionAnswered}
                             id={`option-${currentQ.id}-${opt.id}`}
                           >
                             <span
                               className={cn(
-                                'flex items-center justify-center w-8 h-8 rounded-xl font-bold text-xs shrink-0 transition-transform duration-200',
+                                'flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl font-bold text-xs shrink-0 transition-transform duration-200 mt-0.5 sm:mt-0',
                                 isSelected
                                   ? 'border-indigo-600 bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 scale-105'
+                                  : isQuestionAnswered
+                                  ? 'border border-slate-200 bg-slate-100 text-slate-400'
                                   : 'border border-slate-300 bg-white text-slate-600 group-hover:border-slate-400 group-hover:scale-105'
                               )}
                             >
@@ -793,14 +979,19 @@ export default function QuizPage() {
                             </span>
                             <span
                               className={cn(
-                                'text-sm sm:text-base font-medium flex-1 leading-snug',
-                                isSelected ? 'text-indigo-950 font-semibold' : 'text-slate-700'
+                                'text-xs sm:text-sm md:text-base font-medium flex-1 leading-snug',
+                                isSelected ? 'text-indigo-950 font-semibold' : isQuestionAnswered ? 'text-slate-500' : 'text-slate-700'
                               )}
                             >
                               {opt.option_text}
                             </span>
                             {isSelected && (
-                              <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0 animate-in zoom-in duration-150" />
+                              <div className="flex items-center gap-1.5 shrink-0 mt-0.5 sm:mt-0">
+                                <span className="hidden sm:inline-block text-[11px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-md">
+                                  Selected
+                                </span>
+                                <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600 animate-in zoom-in duration-150" />
+                              </div>
                             )}
                           </button>
                         );
@@ -813,16 +1004,16 @@ export default function QuizPage() {
                   </div>
 
                   {/* Navigation Buttons (Bottom) */}
-                  <div className="flex items-center justify-between mt-10 pt-6 border-t border-slate-100 gap-3 relative z-10">
+                  <div className="flex items-center justify-between mt-6 sm:mt-10 pt-4 sm:pt-6 border-t border-slate-100 gap-2 sm:gap-3 relative z-10">
                     <Button
                       type="button"
                       variant="outline"
                       onClick={() => quiz.goPrev()}
                       disabled={currentIndex === 0}
-                      className="rounded-2xl px-5 border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
+                      className="rounded-xl sm:rounded-2xl px-3.5 sm:px-5 h-10 sm:h-12 border-slate-200 text-slate-700 hover:bg-slate-100 text-xs sm:text-sm font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
                       id="prev-question-btn"
                     >
-                      <ChevronLeft className="w-4 h-4 mr-1" />
+                      <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1" />
                       Previous
                     </Button>
 
@@ -832,18 +1023,18 @@ export default function QuizPage() {
                           type="button"
                           onClick={() => setShowConfirm(true)}
                           disabled={submitting}
-                          className="rounded-2xl px-6 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold shadow-md shadow-emerald-600/20 hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                          className="rounded-xl sm:rounded-2xl px-4 sm:px-6 h-10 sm:h-12 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs sm:text-sm font-semibold shadow-md shadow-emerald-600/20 hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
                           id="submit-quiz-final-btn"
                         >
                           {submitting ? (
                             <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Submitting...
+                              <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
+                              <span>Submitting...</span>
                             </>
                           ) : (
                             <>
-                              <CheckCircle2 className="w-4 h-4" />
-                              Submit Test
+                              <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                              <span>Submit Test</span>
                             </>
                           )}
                         </Button>
@@ -851,11 +1042,11 @@ export default function QuizPage() {
                         <Button
                           type="button"
                           onClick={() => quiz.goNext()}
-                          className="rounded-2xl px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md shadow-indigo-600/20 hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                          className="rounded-xl sm:rounded-2xl px-4 sm:px-6 h-10 sm:h-12 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold shadow-md shadow-indigo-600/20 hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
                           id="next-question-btn"
                         >
-                          Next
-                          <ChevronRight className="w-4 h-4 ml-1" />
+                          <span>Next</span>
+                          <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 ml-1" />
                         </Button>
                       )}
                     </div>
@@ -929,6 +1120,70 @@ export default function QuizPage() {
                   </div>
                 </div>
               </aside>
+            )}
+
+            {/* Mobile Question Navigator Drawer (Slide-up modal) */}
+            {showNav && (
+              <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+                <div
+                  className="fixed inset-0"
+                  onClick={() => setShowNav(false)}
+                  aria-hidden="true"
+                />
+                <div className="relative z-10 bg-white rounded-t-3xl p-5 max-h-[82vh] flex flex-col shadow-2xl border-t border-slate-200 animate-in slide-in-from-bottom duration-250">
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <LayoutGrid className="w-4 h-4 text-indigo-600" />
+                      <h3 className="font-bold text-slate-900 text-sm">Questions ({questions.length})</h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowNav(false)}
+                      className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition-colors"
+                      aria-label="Close Navigator"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-2 overflow-y-auto max-h-[48vh] p-1">
+                    {questions.map((q, i) => {
+                      const isAnswered = !!answers[q.id];
+                      const isCurrent = i === currentIndex;
+                      return (
+                        <button
+                          key={q.id}
+                          onClick={() => {
+                            quiz.goToQuestion(i);
+                            setShowNav(false);
+                          }}
+                          className={cn(
+                            'w-full aspect-square rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center',
+                            isCurrent
+                              ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30 scale-105'
+                              : isAnswered
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/80'
+                          )}
+                        >
+                          {i + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600 font-medium">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-md bg-emerald-100 border border-emerald-300" />
+                      <span>Answered ({answeredCount})</span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-md bg-slate-100 border border-slate-200" />
+                      <span>Remaining ({questions.length - answeredCount})</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
             )}
         </div>
       </main>

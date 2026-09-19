@@ -11,7 +11,6 @@ import QuizPage from '@/pages/QuizPage';
 import ResultPage from '@/pages/ResultPage';
 import SkillReportPage from '@/pages/SkillReportPage';
 import SuccessPage from '@/pages/SuccessPage';
-import BootcampRegisterPage from '@/pages/BootcampRegisterPage';
 
 // Admin pages
 import AdminLoginPage from '@/pages/admin/LoginPage';
@@ -65,8 +64,8 @@ function App() {
             <Route path="/domains" element={<Navigate to="/" replace />} />
             <Route path="/result/:attemptId" element={<ResultPage />} />
             <Route path="/report/:resultId" element={<SkillReportPage />} />
-            <Route path="/bootcamp/register" element={<BootcampRegisterPage />} />
-            <Route path="/bootcamp/register/:bootcampId" element={<BootcampRegisterPage />} />
+            <Route path="/bootcamp/register" element={<Navigate to="/success" replace />} />
+            <Route path="/bootcamp/register/:bootcampId" element={<Navigate to="/success" replace />} />
             <Route path="/success" element={<SuccessPage />} />
           </Route>
 

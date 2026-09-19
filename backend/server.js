@@ -172,13 +172,13 @@ const server = http.createServer(async (req, res) => {
     // ── Submit Quiz Attempt (Strict Server-Side Grading) ────────
     if (pathname === '/api/quiz/submit' && req.method === 'POST') {
       const body = await parseJsonBody(req);
-      const { attemptId, studentId, answers } = body;
+      const { attemptId, studentId, answers, totalQuestions } = body;
 
       if (!attemptId || !studentId) {
         return sendJson(res, 400, { error: 'attemptId and studentId are required' });
       }
 
-      const gradedResult = await quizEngine.submitQuizAttempt(attemptId, studentId, answers || {});
+      const gradedResult = await quizEngine.submitQuizAttempt(attemptId, studentId, answers || {}, totalQuestions);
       return sendJson(res, 200, { success: true, result: gradedResult });
     }
 

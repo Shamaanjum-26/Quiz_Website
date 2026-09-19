@@ -3,6 +3,7 @@ import { persistStudentId } from '@/lib/analytics';
 import { notifyDataChange } from '@/lib/sync';
 import { getBackendUrl } from '@/lib/apiConfig';
 import type { Student, StudentRegistrationData, PaginatedResult, StudentFilters } from '@/types';
+import { getDomainIcon, getStudentDomainDisplay } from '@/lib/domainHelper';
 
 export const LOCAL_STUDENTS_KEY = 'hadescore_local_students';
 export const LOCAL_LEADS_KEY = 'hadescore_local_leads';
@@ -178,9 +179,9 @@ export function saveLocalStudent(data: StudentRegistrationData): { student: Stud
     return { student: updated, isNew: false };
   }
 
-  const domainTitle = data.preferred_domain_id
+  const domainTitle = data.preferred_domain_name || (data.preferred_domain_id
     ? data.preferred_domain_id.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : 'Technical Assessment';
+    : (data.branch || 'Technical Assessment'));
 
   const newStudent: Student = {
     id: 'student-' + Date.now(),
@@ -191,23 +192,22 @@ export function saveLocalStudent(data: StudentRegistrationData): { student: Stud
     branch: data.branch,
     academic_year: data.academic_year,
     state: data.state,
+    campaign_code: data.campaign_code || (data.preferred_domain_name ? `domain:${data.preferred_domain_name}` : undefined),
     preferred_domain_id: data.preferred_domain_id,
-    preferred_domain: data.preferred_domain_id
-      ? {
-          id: data.preferred_domain_id,
-          name: domainTitle,
-          slug: data.preferred_domain_id,
-          icon: '⚡',
-          color: '#06b6d4',
-          difficulty: 'intermediate',
-          question_count: 30,
-          estimated_minutes: 20,
-          active: true,
-          display_order: 1,
-          created_at: '',
-          updated_at: '',
-        }
-      : undefined,
+    preferred_domain: {
+      id: data.preferred_domain_id || 'custom',
+      name: domainTitle,
+      slug: (data.preferred_domain_id || domainTitle).toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      icon: getDomainIcon(domainTitle),
+      color: '#06b6d4',
+      difficulty: 'intermediate',
+      question_count: 30,
+      estimated_minutes: 20,
+      active: true,
+      display_order: 1,
+      created_at: '',
+      updated_at: '',
+    },
     consent: data.consent ?? true,
     is_verified: true,
     whatsapp_opt_in: (data as any).whatsapp_opt_in ?? true,
@@ -320,21 +320,58 @@ export function resolveDomainUuid(domainIdOrSlug?: string | null): string | null
     'web-development': 'd0000000-0000-0000-0000-000000000002',
     'full-stack-web-dev': 'd0000000-0000-0000-0000-000000000002',
     'full-stack-web-development': 'd0000000-0000-0000-0000-000000000002',
+    'react': 'd0000000-0000-0000-0000-000000000002',
+    'javascript': 'd0000000-0000-0000-0000-000000000002',
     'data-science': 'd0000000-0000-0000-0000-000000000003',
     'data-science-ai': 'd0000000-0000-0000-0000-000000000003',
     'data-science-machine-learning': 'd0000000-0000-0000-0000-000000000003',
     'ai-ml': 'd0000000-0000-0000-0000-000000000003',
+    'ai': 'd0000000-0000-0000-0000-000000000003',
+    'ml': 'd0000000-0000-0000-0000-000000000003',
     'java': 'd0000000-0000-0000-0000-000000000004',
     'java-spring-boot': 'd0000000-0000-0000-0000-000000000004',
     'java-backend-architecture': 'd0000000-0000-0000-0000-000000000004',
     'cloud-computing': 'd0000000-0000-0000-0000-000000000005',
     'cloud-devops': 'd0000000-0000-0000-0000-000000000005',
+    'cloud': 'd0000000-0000-0000-0000-000000000005',
+    'devops': 'd0000000-0000-0000-0000-000000000005',
     'cyber-security': 'd0000000-0000-0000-0000-000000000006',
     'cybersecurity': 'd0000000-0000-0000-0000-000000000006',
     'cybersecurity-ethical-hacking': 'd0000000-0000-0000-0000-000000000006',
+    'ui-ux': 'd0000000-0000-0000-0000-000000000007',
+    'ui-ux-design': 'd0000000-0000-0000-0000-000000000007',
+    'prompt-engineering': 'd0000000-0000-0000-0000-000000000008',
+    'biotechnology': 'd0000000-0000-0000-0000-000000000009',
+    'biotech': 'd0000000-0000-0000-0000-000000000009',
+    'biotech-eng': 'd0000000-0000-0000-0000-000000000009',
+    'dsa': 'd0000000-0000-0000-0000-000000000010',
+    'cpp': 'd0000000-0000-0000-0000-000000000011',
+    'c': 'd0000000-0000-0000-0000-000000000011',
+    'business-management': 'd0000000-0000-0000-0000-000000000012',
+    'civil': 'd0000000-0000-0000-0000-000000000013',
+    'civil-eng': 'd0000000-0000-0000-0000-000000000013',
+    'civil-engineering': 'd0000000-0000-0000-0000-000000000013',
+    'electrical': 'd0000000-0000-0000-0000-000000000014',
+    'eee': 'd0000000-0000-0000-0000-000000000014',
+    'eee-eng': 'd0000000-0000-0000-0000-000000000014',
+    'electrical-engineering': 'd0000000-0000-0000-0000-000000000014',
+    'mech': 'd0000000-0000-0000-0000-000000000015',
+    'mechanical': 'd0000000-0000-0000-0000-000000000015',
+    'mech-eng': 'd0000000-0000-0000-0000-000000000015',
+    'mechanical-engineering': 'd0000000-0000-0000-0000-000000000015',
   };
 
-  return slugMap[domainIdOrSlug.toLowerCase()] || null;
+  const key = domainIdOrSlug.toLowerCase().trim();
+  if (slugMap[key]) return slugMap[key];
+
+  // Match substring if available
+  for (const [k, uuid] of Object.entries(slugMap)) {
+    if (key.includes(k) || k.includes(key)) {
+      return uuid;
+    }
+  }
+
+  return null;
 }
 
 // ── Create or retrieve student ────────────────────────────────
@@ -458,6 +495,7 @@ export async function createOrGetStudent(
         city: data.city || null,
         graduation_year: data.graduation_year || null,
         preferred_domain_id: resolvedDomainId,
+        campaign_code: data.campaign_code || (data.preferred_domain_name ? `domain:${data.preferred_domain_name}` : null),
         linkedin_url: data.linkedin_url || null,
         consent: data.consent ?? true,
         utm_source: data.utm_source || null,
@@ -682,6 +720,20 @@ export async function listStudents(
       } catch {}
     }
 
+    // Enrich every student's preferred_domain with accurate registered domain name & icon
+    studentList = studentList.map((s) => {
+      const display = getStudentDomainDisplay(s);
+      return {
+        ...s,
+        preferred_domain: {
+          id: s.preferred_domain?.id || s.preferred_domain_id || 'custom',
+          name: display.name,
+          slug: s.preferred_domain?.slug || display.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          icon: display.icon,
+        },
+      };
+    });
+
     // Enrich with leads data safely
     if (studentList.length > 0) {
       try {
@@ -753,7 +805,7 @@ export async function exportStudentsCSV(filters: StudentFilters): Promise<string
 
   const rows = list.map((s) => [
     s.full_name, s.email, s.mobile, s.college, s.branch, s.academic_year, s.state,
-    s.preferred_domain?.name || '',
+    getStudentDomainDisplay(s).name,
     s.lead?.lead_score || 0,
     s.lead?.lead_status || 'NURTURE',
     s.utm_source || '', s.referral_code || '',

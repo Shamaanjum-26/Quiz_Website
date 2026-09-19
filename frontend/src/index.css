@@ -52,14 +52,32 @@
 
   * {
     @apply border-border;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html,
+  body {
+    overflow-x: hidden;
+    max-width: 100vw;
+    width: 100%;
   }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    -webkit-overflow-scrolling: touch;
   }
 
   html {
     scroll-behavior: smooth;
+  }
+
+  /* Prevent iOS Safari 16px zoom bug on mobile form inputs */
+  @media screen and (max-width: 640px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
   }
 }
 
@@ -251,6 +269,87 @@
     user-select: none !important;
     -webkit-user-drag: none !important;
     user-drag: none !important;
+  }
+
+  /* Animated Header Gradient Flow */
+  @keyframes flowGradient {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  .animate-gradient-flow {
+    background-size: 250% 250%;
+    animation: flowGradient 6s ease-in-out infinite;
+  }
+
+  /* 3D Floating Interactive Badge */
+  @keyframes badgeLevitate {
+    0%, 100% {
+      transform: translateY(0px) rotate(0deg) scale(1);
+    }
+    25% {
+      transform: translateY(-6px) rotate(-4deg) scale(1.04);
+    }
+    50% {
+      transform: translateY(-10px) rotate(3deg) scale(1.06);
+    }
+    75% {
+      transform: translateY(-4px) rotate(-2deg) scale(1.02);
+    }
+  }
+
+  .animate-badge-levitate {
+    animation: badgeLevitate 3.6s ease-in-out infinite;
+  }
+
+  /* Sparkle Twinkle & Dynamic Spin */
+  @keyframes sparkleTwinkle {
+    0%, 100% {
+      transform: scale(1) rotate(0deg);
+      opacity: 0.92;
+    }
+    30% {
+      transform: scale(1.22) rotate(90deg);
+      opacity: 1;
+      filter: drop-shadow(0 0 10px rgba(253, 224, 71, 0.95));
+    }
+    60% {
+      transform: scale(0.95) rotate(180deg);
+      opacity: 0.85;
+    }
+    85% {
+      transform: scale(1.18) rotate(270deg);
+      opacity: 1;
+      filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.85));
+    }
+  }
+
+  .animate-sparkle-twinkle {
+    animation: sparkleTwinkle 3.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  /* Ambient Halo Glow Pulse */
+  @keyframes haloPulse {
+    0%, 100% {
+      opacity: 0.4;
+      transform: scale(0.95);
+    }
+    50% {
+      opacity: 0.85;
+      transform: scale(1.15);
+      filter: blur(14px);
+    }
+  }
+
+  .animate-halo-pulse {
+    animation: haloPulse 3s ease-in-out infinite;
   }
 }
 

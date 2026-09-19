@@ -73,6 +73,7 @@ export interface StudentRegistrationData {
   city?: string;
   graduation_year?: number;
   preferred_domain_id?: string;
+  preferred_domain_name?: string;
   linkedin_url?: string;
   consent: boolean;
   utm_source?: string;
@@ -81,6 +82,7 @@ export interface StudentRegistrationData {
   utm_content?: string;
   utm_term?: string;
   referral_code?: string;
+  campaign_code?: string;
 }
 
 // ── Questions ─────────────────────────────────────────────────

@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AdminTableSkeleton } from '@/components/admin/AdminTableSkeleton';
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState';
+import { getStudentDomainDisplay } from '@/lib/domainHelper';
 import {
   listStudents,
   exportStudentsCSV,
@@ -150,7 +151,7 @@ export default function AdminStudentsPage() {
           s.college?.toLowerCase().includes(q) ||
           s.branch?.toLowerCase().includes(q) ||
           s.mobile?.includes(q) ||
-          s.preferred_domain?.name?.toLowerCase().includes(q)
+          getStudentDomainDisplay(s).name.toLowerCase().includes(q)
       );
     }
 
@@ -488,10 +489,15 @@ export default function AdminStudentsPage() {
 
                       {/* 7. Registered Domain */}
                       <td className="px-4 py-3.5">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-200/80 shadow-2xs">
-                          <span>{student.preferred_domain?.icon || '⚡'}</span>
-                          <span>{student.preferred_domain?.name || 'General Assessment'}</span>
-                        </span>
+                        {(() => {
+                          const domainInfo = getStudentDomainDisplay(student);
+                          return (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-200/80 shadow-2xs">
+                              <span>{domainInfo.icon}</span>
+                              <span>{domainInfo.name}</span>
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       {/* 8. Registered Date */}
@@ -587,8 +593,9 @@ export default function AdminStudentsPage() {
 
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                   <span className="text-slate-400 block mb-1 text-[11px] font-medium">Registered Domain</span>
-                  <span className="font-semibold text-slate-800 truncate block">
-                    {selectedStudent.preferred_domain?.name || 'General Tech'}
+                  <span className="font-semibold text-slate-800 truncate flex items-center gap-1.5">
+                    <span>{getStudentDomainDisplay(selectedStudent).icon}</span>
+                    <span>{getStudentDomainDisplay(selectedStudent).name}</span>
                   </span>
                 </div>
               </div>
